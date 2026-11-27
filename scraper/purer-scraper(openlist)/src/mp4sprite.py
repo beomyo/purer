@@ -216,7 +216,7 @@ class SpriteIndex:
                     last_error = exc
                     if runtime.cancel_event.is_set():
                         raise
-                    time.sleep(0.5 * (attempt + 1))
+                    time.sleep(min(10.0, 2.0 * (attempt + 1)))
             raise VideoError(
                 "timeout",
                 f"第 {index + 1}/{len(ranges)} 段数据读取失败（{last_error}）",

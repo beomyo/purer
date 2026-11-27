@@ -270,7 +270,8 @@ def read_range_retry(
             last = exc
             if runtime.cancel_event.is_set() or exc.reason in ("auth", "notfound"):
                 raise
-            time.sleep(0.5 * (attempt + 1))
+            # 403/5xx 往往意味着上游限流或风控，退避要明显一点
+            time.sleep(min(10.0, 2.0 * (attempt + 1)))
     assert last is not None
     raise last
 

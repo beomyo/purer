@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = "1.12.1"
+VERSION = "1.12.2"
 USER_AGENT = f"PurerDesktopScraper/{VERSION}"
 
 # ---- 失败标记（与 App 的 CloudMediaCache / CloudThumbnailScraper 一致） ----

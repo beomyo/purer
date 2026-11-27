@@ -951,6 +951,7 @@ def scrape(
     sprite_min_duration: float = DEFAULT_SPRITE_MIN_DURATION,
     sprite_index: bool = True,
     sprite_window: bool = True,
+    video_pause: float = 0.0,
 ) -> Stats:
     runtime.cancel_event.clear()
     stats = Stats(started_at=time.monotonic())
@@ -984,6 +985,14 @@ def scrape(
 
     tracker = TaskTracker(board, summary_line)
 
+    def wait_video_pause(last_submit: float) -> None:
+        """限制新视频的启动频率，避免快速路径把「打开新文件」的速度提得过高。"""
+        if video_pause <= 0:
+            return
+        remaining = video_pause - (time.monotonic() - last_submit)
+        if remaining > 0:
+            runtime.cancel_event.wait(remaining)
+
     def show_status(folder_url: str, done: int, total: int) -> None:
         with state_lock:
             status_state["folder"] = folder_url
@@ -1000,7 +1009,7 @@ def scrape(
         submitted = 0
         # 连续服务器 5xx 保护：115 WAF/OpenList 故障时不要把所有视频都打一遍
         server_streak = 0
-        server_streak_limit = 8
+        server_streak_limit = 5
 
         log(f"开始刮削：{display_url(source_folder)}")
         log(f"缓存根目录：{display_url(cache_root)}")
@@ -1262,7 +1271,12 @@ def scrape(
             futures: dict = {}
             completed = False
             try:
+                last_submit = 0.0
                 for video in todo:
+                    wait_video_pause(last_submit)
+                    if runtime.cancel_event.is_set():
+                        break
+                    last_submit = time.monotonic()
                     futures[executor.submit(handle, video)] = video
                 for future in as_completed(futures):
                     video = futures[future]

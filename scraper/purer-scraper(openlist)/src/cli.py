@@ -138,6 +138,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--video-pause", type=float, default=None,
+        help=(
+            "每启动一个视频至少间隔多少秒（默认 0）。115 风控敏感时建议 30–60，"
+            "配合 --jobs 1 --rate 1 使用"
+        ),
+    )
+    parser.add_argument(
         "--jobs", type=int, default=None,
         help=f"同时处理的视频数（1–{MAX_JOBS}，默认 {DEFAULT_JOBS}；App 上限为 {MAX_JOBS}）",
     )
@@ -382,6 +389,14 @@ def main(argv: list[str] | None = None) -> int:
     sprite_window = (not args.no_sprite_window) and (
         stored_window if isinstance(stored_window, bool) else SPRITE_TS_WINDOW_ENABLED
     )
+    video_pause = (
+        args.video_pause
+        if args.video_pause is not None
+        else config_number(config, "video_pause", 0.0, float)
+    )
+    if video_pause < 0:
+        print("--video-pause 不能为负数，已按 0 处理。")
+        video_pause = 0.0
 
     cache_folder = args.cache_folder or config_text(config, "cache_folder")
 
@@ -404,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
         config["sprite_min_duration"] = sprite_min_duration
         config["sprite_index"] = sprite_index
         config["sprite_window"] = sprite_window
+        config["video_pause"] = video_pause
         save_config(config_path, config)
         markers = collect_all_failures(cache_client, cache_folder, source_base)
         if not markers:
@@ -544,6 +560,7 @@ def main(argv: list[str] | None = None) -> int:
             "sprite_min_duration": sprite_min_duration,
             "sprite_index": sprite_index,
             "sprite_window": sprite_window,
+            "video_pause": video_pause,
             "probe_timeout": probe_timeout,
             "extract_timeout": extract_timeout,
             "stall_timeout": stall_timeout,
@@ -582,6 +599,7 @@ def main(argv: list[str] | None = None) -> int:
             sprite_min_duration=sprite_min_duration,
             sprite_index=sprite_index,
             sprite_window=sprite_window,
+            video_pause=video_pause,
         )
     except KeyboardInterrupt:
         runtime.cancel_running()

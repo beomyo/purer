@@ -138,7 +138,7 @@ def _fetch_window(
             last_error = exc
             if runtime.cancel_event.is_set():
                 raise
-            time.sleep(0.5 * (attempt + 1))
+            time.sleep(min(10.0, 2.0 * (attempt + 1)))
     raise VideoError(
         "timeout",
         f"读取 TS 数据窗口失败（{last_error}）",
