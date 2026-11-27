@@ -1,0 +1,20 @@
+name: streams_channel
+description: StreamsChannel is inspired from EventChannel. It allows to create streams of events between Flutter and platform side.
+version: 0.3.0
+homepage: https://github.com/loup-v/streams_channel
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: app.loup.streams_channel
+        pluginClass: StreamsChannelPlugin
+      ios:
+        pluginClass: StreamsChannelPlugin

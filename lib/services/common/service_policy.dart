@@ -1,0 +1,213 @@
+import 'dart:async';
+import 'dart:collection';
+
+import 'package:collection/collection.dart';
+import 'package:flutter/foundation.dart';
+
+final ServicePolicy servicePolicy = ServicePolicy._private();
+
+class ServicePolicy {
+  final StreamController<QueueState> _queueStreamController = StreamController.broadcast();
+  final Map<Object, (int, _Task)> _paused = {};
+  final SplayTreeMap<int, LinkedHashMap<Object, _Task>> _queues = SplayTreeMap();
+  final LinkedHashMap<Object, _Task> _runningQueue = LinkedHashMap();
+
+  // magic number
+  static const concurrentTaskMax = 4;
+
+  Stream<QueueState> get queueStream => _queueStreamController.stream;
+
+  new _private();
+
+  Future<T> call<T>(
+    Future<T> Function() platformCall, {
+    int priority = ServiceCallPriority.normal,
+    Object? key,
+  }) {
+    key ??= platformCall.hashCode;
+
+    // 1. If this exact key is already running, chain to its future
+    final running = _runningQueue[key];
+    if (running != null) {
+      final taskCompleter = Completer<T>();
+      (running.completer.future as Future<T>).then(
+        taskCompleter.complete,
+        onError: taskCompleter.completeError,
+      );
+      return taskCompleter.future;
+    }
+
+    // 2. If this exact key is already queued, chain to the existing queued task
+    for (final queue in _queues.values) {
+      final existing = queue[key];
+      if (existing != null) {
+        final taskCompleter = Completer<T>();
+        (existing.completer.future as Future<T>).then(
+          taskCompleter.complete,
+          onError: taskCompleter.completeError,
+        );
+        return taskCompleter.future;
+      }
+    }
+
+    Completer<T> taskCompleter;
+    _Task<T> task;
+    final toResume = _paused.remove(key);
+    if (toResume != null) {
+      priority = toResume.$1;
+      task = toResume.$2 as _Task<T>;
+      taskCompleter = task.completer;
+    } else {
+      taskCompleter = Completer<T>();
+      task = _Task<T>(
+        () async {
+          try {
+            taskCompleter.complete(await platformCall());
+          } catch (error, stack) {
+            taskCompleter.completeError(error, stack);
+          }
+          _runningQueue.remove(key);
+          _pickNext();
+        },
+        taskCompleter,
+      );
+    }
+    // a request someone asked for again (a tile that came back on screen)
+    // should not wait behind everything that was queued in the meantime
+    _enqueue(priority, key, task, front: toResume != null);
+    _pickNext();
+    return taskCompleter.future;
+  }
+
+  Future<T>? resume<T>(Object key) {
+    final toResume = _paused.remove(key);
+    if (toResume != null) {
+      final priority = toResume.$1;
+      final task = toResume.$2 as _Task<T>;
+      _enqueue(priority, key, task, front: true);
+      _pickNext();
+      return task.completer.future;
+    } else {
+      return null;
+    }
+  }
+
+  LinkedHashMap<Object, _Task> _getQueue(int priority) => _queues.putIfAbsent(priority, LinkedHashMap.new);
+
+  void _enqueue(int priority, Object key, _Task task, {bool front = false}) {
+    final queue = _getQueue(priority);
+    if (!front || queue.isEmpty) {
+      queue[key] = task;
+      return;
+    }
+    // `LinkedHashMap` keeps insertion order, so rebuilding it puts the task
+    // first
+    final reordered = <Object, _Task>{key: task};
+    queue.forEach((k, v) => reordered[k] = v);
+    queue
+      ..clear()
+      ..addAll(reordered);
+  }
+
+  void _pickNext() {
+    _notifyQueueState();
+    if (_runningQueue.length >= concurrentTaskMax) return;
+    // a second call for a key that is already running (a tile rebuilt while
+    // its first request is in flight) must not be started on top of it: that
+    // used to double count and let the number of concurrent calls grow without
+    // bound. Rotate it behind the others and try the next one instead.
+    final queued = _queues.values.fold<int>(0, (sum, q) => sum + q.length);
+    var rotations = 0;
+    while (_runningQueue.length < concurrentTaskMax) {
+      final queue = _queues.entries.firstWhereOrNull((kv) => kv.value.isNotEmpty)?.value;
+      if (queue == null || queue.isEmpty) return;
+      final key = queue.keys.first;
+      if (_runningQueue.containsKey(key)) {
+        final task = queue.remove(key)!;
+        queue[key] = task;
+        if (++rotations > queued) return;
+        continue;
+      }
+      final task = queue.remove(key)!;
+      _runningQueue[key] = task;
+      task.callback();
+      if (_runningQueue.length >= concurrentTaskMax) return;
+    }
+  }
+
+  bool _takeOut(Object key, Iterable<int> priorities, void Function(int priority, _Task task) action) {
+    var out = false;
+    priorities.forEach((priority) {
+      final task = _getQueue(priority).remove(key);
+      if (task != null) {
+        out = true;
+        action(priority, task);
+      }
+    });
+    return out;
+  }
+
+  bool cancel(Object key, Iterable<int> priorities) {
+    return _takeOut(key, priorities, (priority, task) => task.completer.completeError(CancelledException()));
+  }
+
+  bool pause(Object key, Iterable<int> priorities) {
+    return _takeOut(key, priorities, (priority, task) => _paused.putIfAbsent(key, () => (priority, task)));
+  }
+
+  bool isPaused(Object key) => _paused.containsKey(key);
+
+  // moves a queued call to the front of its queue. Used when a tile becomes
+  // visible again: its thumbnail must not wait behind the ones that were
+  // requested earlier (e.g. while scrolling past them)
+  bool prioritize(Object key) {
+    final toResume = _paused.remove(key);
+    if (toResume != null) {
+      _enqueue(toResume.$1, key, toResume.$2, front: true);
+      _pickNext();
+      return true;
+    }
+    for (final entry in _queues.entries) {
+      final task = entry.value.remove(key);
+      if (task == null) continue;
+      _enqueue(entry.key, key, task, front: true);
+      _notifyQueueState();
+      return true;
+    }
+    return false;
+  }
+
+  void _notifyQueueState() {
+    if (!_queueStreamController.hasListener) return;
+
+    final queueByPriority = Map.fromEntries(_queues.entries.map((kv) => MapEntry(kv.key, kv.value.length)));
+    _queueStreamController.add(QueueState(queueByPriority, _runningQueue.length, _paused.length));
+  }
+}
+
+class _Task<T> {
+  final VoidCallback callback;
+  final Completer<T> completer;
+
+  const new(this.callback, this.completer);
+}
+
+class CancelledException;
+
+class ServiceCallPriority {
+  static const int getFastThumbnail = 100;
+  static const int getRegion = 150;
+  static const int getSizedThumbnail = 200;
+  // remote video frames are expensive to extract, so they yield to visible image thumbnails
+  static const int getVideoThumbnail = 250;
+  static const int normal = 500;
+  static const int getMetadata = 1000;
+  static const int getLocation = 1000;
+}
+
+class QueueState {
+  final Map<int, int> queueByPriority;
+  final int runningCount, pausedCount;
+
+  const new(this.queueByPriority, this.runningCount, this.pausedCount);
+}

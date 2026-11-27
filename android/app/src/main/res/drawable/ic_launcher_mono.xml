@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Single-color silhouette used by Android 13+ themed icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M35.059 75.089 C26.858 75.089 21.000 69.231 21.000 61.811 C21.000 54.781 26.077 49.314 33.107 48.142 C35.059 39.160 43.260 32.911 52.633 32.911 C62.006 32.911 69.817 39.160 72.160 47.751 C80.751 48.533 87.000 55.172 87.000 63.373 C87.000 70.012 81.923 75.089 75.284 75.089 Z M44.934 42.493 L63.066 42.493 A4.882 4.882 0 0 1 67.948 47.375 L67.948 62.020 A4.882 4.882 0 0 1 63.066 66.902 L44.934 66.902 A4.882 4.882 0 0 1 40.052 62.020 L40.052 47.375 A4.882 4.882 0 0 1 44.934 42.493 Z" />
+    <group>
+        <clip-path android:pathData="M44.934 42.493 L63.066 42.493 A4.882 4.882 0 0 1 67.948 47.375 L67.948 62.020 A4.882 4.882 0 0 1 63.066 66.902 L44.934 66.902 A4.882 4.882 0 0 1 40.052 62.020 L40.052 47.375 A4.882 4.882 0 0 1 44.934 42.493 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M42.493 48.072 A2.790 2.790 0 1 0 48.072 48.072 A2.790 2.790 0 1 0 42.493 48.072 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M 40.052 66.902 L 49.816 55.743 L 56.092 61.671 L 60.625 57.487 L 68.645 66.902 Z" />
+    </group>
+</vector>

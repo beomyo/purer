@@ -1,0 +1,99 @@
+name: purer
+description: 仅保留 WebDAV / SMB 云服务浏览的 Android 相册应用。
+publish_to: none
+
+# version bump checklist:
+# - increase app version: /pubspec.yaml
+# - edit changelog:       /CHANGELOG.md
+version: 1.2.0+33
+
+environment:
+  # this project bundles Flutter SDK via `flutter_wrapper`
+  # cf https://github.com/passsy/flutter_wrapper
+  flutter: 3.47.6
+  sdk: ">=3.13.3 <4.0.0"
+
+platforms:
+  android:
+
+workspace:
+  - plugins/purer_model
+  - plugins/purer_report
+  - plugins/purer_utils
+  - plugins/purer_video
+  - plugins/purer_video_mpv
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  purer_model:
+    path: plugins/purer_model
+  purer_report:
+    path: plugins/purer_report
+  purer_utils:
+    path: plugins/purer_utils
+  purer_video:
+    path: plugins/purer_video
+  purer_video_mpv:
+    path: plugins/purer_video_mpv
+  collection:
+  country_code:
+  device_info_plus:
+  dynamic_color:
+  equatable:
+  flutter_staggered_animations:
+    git:
+      url: https://github.com/deckerst/flutter_staggered_animations
+      ref: e474c5f67050f9a04e4e5b65e33e46bd2ccfdc53
+  get_it:
+  http:
+  image:
+  intl:
+  latlong2:
+  leak_tracker:
+  material_color_utilities:
+  material_symbols_icons:
+  material_ui:
+  media_kit:
+  media_kit_libs_android_video:
+  overlay_support:
+    git:
+      url: https://github.com/deckerst/overlay_support.git
+      ref: ef569e1de54c568ee71e4772f624ffd78f69d64e
+  package_info_plus:
+  path:
+  percent_indicator:
+    git:
+      url: https://github.com/deckerst/flutter_percent_indicator.git
+      ref: 71643a4c2ce9b8f8fbd4645cb479a0ee0fe3d2c3
+  provider:
+  shared_preferences:
+  smb_connect: ^0.0.9
+  stack_trace:
+  streams_channel:
+    path: plugins/streams_channel
+  xml:
+
+dependency_overrides:
+  media_kit_video:
+    git:
+      url: https://github.com/deckerst/media-kit.git
+      path: media_kit_video
+      ref: video_controller_disposal
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints:
+
+flutter:
+  generate: true
+  uses-material-design: true
+
+################################################################################
+# Localization
+
+# 界面仅提供简体中文：/lib/l10n/app_zh.arb
+# `flutter pub get` 会生成 `AppLocalizations` 到 /lib/l10ngen/

@@ -1,0 +1,11 @@
+# cf guides:
+# http://flutter.dev/go/i18n-user-guide
+# https://docs.flutter.dev/development/accessibility-and-localization/internationalization
+
+# the app ships in Simplified Chinese only
+arb-dir: lib/l10n
+output-dir: lib/l10ngen
+template-arb-file: app_zh.arb
+output-localization-file: app_localizations.dart
+preferred-supported-locales:
+  - zh

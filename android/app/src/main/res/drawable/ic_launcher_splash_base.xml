@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ splash icon: same black-grey cloud + photo mark as the launcher icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <path android:pathData="M0,0 h512 v512 h-512 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="512"
+                android:endY="512"
+                android:startColor="#2B2B30"
+                android:endColor="#0B0B0D" />
+        </aapt:attr>
+    </path>
+    <group
+        android:scaleX="1.12"
+        android:scaleY="1.12"
+        android:translateX="-29.6"
+        android:translateY="6.64">
+        <path android:pathData="M158 336 C116 336 86 306 86 268 C86 232 112 204 148 198 C158 152 200 120 248 120 C296 120 336 152 348 196 C392 200 424 234 424 276 C424 310 398 336 364 336 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="86"
+                    android:startY="120"
+                    android:endX="424"
+                    android:endY="336"
+                    android:startColor="#FFFFFF"
+                    android:endColor="#CFCFD6" />
+            </aapt:attr>
+        </path>
+    </group>
+    <path android:pathData="M204 196 L308 196 A28 28 0 0 1 336 224 L336 308 A28 28 0 0 1 308 336 L204 336 A28 28 0 0 1 176 308 L176 224 A28 28 0 0 1 204 196 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="176"
+                android:startY="196"
+                android:endX="336"
+                android:endY="336"
+                android:startColor="#A1A1AA"
+                android:endColor="#52525B" />
+        </aapt:attr>
+    </path>
+    <group>
+        <clip-path android:pathData="M204 196 L308 196 A28 28 0 0 1 336 224 L336 308 A28 28 0 0 1 308 336 L204 336 A28 28 0 0 1 176 308 L176 224 A28 28 0 0 1 204 196 Z" />
+        <path
+            android:fillColor="#FAFAFA"
+            android:pathData="M190 228 A16 16 0 1 0 222 228 A16 16 0 1 0 190 228 Z" />
+        <path
+            android:fillColor="#FAFAFA"
+            android:pathData="M176 336 L232 272 L268 306 L294 282 L340 336 Z" />
+    </group>
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M204 196 L308 196 A28 28 0 0 1 336 224 L336 308 A28 28 0 0 1 308 336 L204 336 A28 28 0 0 1 176 308 L176 224 A28 28 0 0 1 204 196 Z"
+        android:strokeColor="#4DFFFFFF"
+        android:strokeWidth="3" />
+</vector>

@@ -1,0 +1,28 @@
+{
+  "name": "115-thumbnail-scraper",
+  "version": "1.5.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "description": "在 115 网页里用 WebCodecs 批量生成 Purer 兼容的缩略图和雪碧图，直接写入 WebDAV 缓存",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cbingbing/demuxer": "^2.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.11",
+    "jsdom": "^31.0.1",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.11",
+    "vite-plugin-monkey": "^5.0.5",
+    "vitest": "^4.0.16"
+  }
+}

@@ -1,0 +1,470 @@
+{
+  "cancelTooltip": "取消",
+  "entryActionDelete": "删除",
+  "themeBrightnessLight": "浅色",
+  "themeBrightnessDark": "深色",
+  "themeBrightnessBlack": "黑色",
+  "noMatchingAppDialogMessage": "无对应的处理程序",
+  "genericSuccessFeedback": "完成！",
+  "genericFailureFeedback": "失败",
+  "menuActionSelectAll": "全选",
+  "settingsPageTitle": "软件设置",
+  "settingsSystemDefault": "系统默认",
+  "settingsVideoLongPressSpeed": "长按倍速",
+  "videoScrubReleaseToCancel": "松开取消",
+  "settingsThemeBrightnessTile": "主题",
+  "settingsThemeBrightnessDialogTitle": "主题",
+  "settingsThemeEnableDynamicColor": "动态色彩",
+  "settingsFullScreen": "全屏",
+  "settingsFullScreenDescription": "隐藏系统状态栏，让页面使用整个屏幕",
+  "videoResumptionModeNever": "从不",
+  "settingsAskEverytime": "每次都询问",
+  "videoResumptionModeAlways": "始终",
+  "settingsVideoResumptionModeTile": "恢复播放",
+  "settingsVideoResumptionModeDialogTitle": "恢复播放",
+  "aboutDataUsageClearCache": "清理缓存",
+  "webdavEditServer": "编辑服务器",
+  "webdavServerName": "名称",
+  "webdavUsername": "用户名",
+  "webdavPassword": "密码",
+  "webdavIgnoreTlsErrors": "忽略 TLS 证书错误",
+  "webdavTestConnection": "测试连接",
+  "webdavTestConnectionSuccess": "连接成功",
+  "webdavTestConnectionFailure": "连接失败",
+  "webdavEmptyFolder": "空文件夹",
+  "webdavLoadError": "加载文件夹失败",
+  "webdavRefresh": "刷新",
+  "webdavActionSave": "保存",
+  "webdavActionCancel": "取消",
+  "webdavActionEdit": "编辑",
+  "webdavActionRemove": "移除",
+  "webdavLayoutGrid": "网格",
+  "webdavLayoutList": "列表",
+  "webdavLayoutMosaic": "马赛克",
+  "webdavRoot": "/",
+  "webdavColumnsTitle": "列数",
+  "webdavImmersive": "沉浸式",
+  "webdavViewOptions": "视图设置",
+  "webdavMediaType": "媒体类型",
+  "webdavMediaAll": "全部",
+  "webdavMediaImages": "仅图片",
+  "webdavMediaVideos": "仅视频",
+  "webdavShowFileNames": "显示文件名",
+  "webdavVideoError": "无法播放此视频",
+  "webdavOrientationPortrait": "竖屏",
+  "webdavOrientationLandscape": "横屏",
+  "webdavJumpToPath": "跳转到路径",
+  "webdavPathHint": "文件夹路径，例如 folder/subfolder",
+  "webdavActionGo": "跳转",
+  "cloudContinueBrowsing": "继续浏览",
+  "cloudServicesRoot": "云服务",
+  "cloudResumeNameHidden": "文件夹名已隐藏",
+  "cloudResumeToggleName": "显示/隐藏上次浏览的文件夹名",
+  "cloudAddService": "添加服务",
+  "cloudAddWebDav": "添加 WebDAV",
+  "cloudAddSmb": "添加 SMB",
+  "cloudRemoveServer": "移除服务",
+  "cloudEmptyServers": "未配置任何服务",
+  "cloudServerAddress": "服务器地址",
+  "cloudSmbAddress": "SMB 地址",
+  "cloudSmbDomain": "域（可选）",
+  "cloudTypeWebDav": "WebDAV",
+  "cloudTypeSmb": "SMB / Windows 共享",
+  "cloudTypeWebDavHint": "WebDAV 服务器，如 AList、Nextcloud",
+  "cloudTypeSmbHint": "Windows / NAS 网络共享",
+  "cloudSort": "排序",
+  "cloudVideoBrowserTitle": "播放其他视频",
+  "cloudDefaultViews": "默认视图",
+  "cloudDefaultImage": "图片",
+  "cloudDefaultVideo": "视频",
+  "cloudLayoutPerFolder": "单独记住每个文件夹的视图",
+  "cloudShowFileSizes": "显示文件大小",
+  "cloudShowDimensions": "显示图片尺寸",
+  "cloudViewerThumbnails": "图片浏览器缩略图条",
+  "cloudViewerProgressBar": "图片浏览器进度条",
+  "cloudViewerSettings": "浏览设置",
+  "cloudViewerMode": "浏览模式",
+  "cloudViewerModePaged": "单页翻页",
+  "cloudViewerModeContinuous": "横向连续画卷",
+  "cloudViewerPosition": "显示位置",
+  "cloudViewerPositionBottom": "底部",
+  "cloudViewerPositionLeft": "左侧",
+  "cloudViewerPositionRight": "右侧",
+  "cloudViewerAutoScroll": "自动滑动",
+  "cloudViewerAutoScrollSpeed": "自动滑动速度",
+  "cloudViewerAutoPageFlip": "自动翻页",
+  "cloudViewerAutoPageFlipInterval": "翻页间隔",
+  "cloudViewerAutoPageFlipDistance": "翻动距离",
+  "cloudViewerCustom": "自定义",
+  "cloudViewerCustomSpeedTitle": "自定义滑动倍率",
+  "cloudViewerCustomIntervalTitle": "自定义翻页间隔（秒）",
+  "cloudViewerCustomDistanceTitle": "自定义翻动距离（屏幕宽度的百分比）",
+  "cloudScrollDirection": "滑动方向",
+  "cloudDirectionVertical": "上下",
+  "cloudDirectionHorizontal": "左右",
+  "cloudMagnifier": "长按放大",
+  "cloudMagnifierDelay": "触发时间",
+  "cloudMagnifierScale": "放大倍率",
+  "cloudCustomMagnifierDelayTitle": "自定义触发时间（毫秒）",
+  "cloudCustomMagnifierScaleTitle": "自定义放大倍率",
+  "cloudViewerImmersive": "沉浸视图",
+  "cloudViewerExitImmersive": "退出沉浸模式",
+  "cloudViewerNextAlbum": "下一图集：{name}",
+  "cloudViewerNextAlbumError": "加载下一图集失败",
+  "cloudViewerAlbumEmpty": "图集「{name}」没有图片",
+  "@cloudViewerAlbumEmpty": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "cloudSeamlessSwitch": "无缝切换",
+  "cloudSectionAutoBrowse": "自动浏览",
+  "cloudSectionSwitch": "切换与画质",
+  "cloudSeamlessSwitchDescription": "跨文件夹或图集时无缝衔接，避免黑屏加载动画",
+  "cloudThumbnailQuality": "图片清晰度",
+  "cloudThumbnailQualityDescription": "云端图片的解码清晰度，切换后当前画面会重新解码",
+  "cloudThumbnailQualityStandard": "标准",
+  "cloudThumbnailQualityHigh": "高清",
+  "cloudThumbnailQualityOriginal": "原画",
+  "cloudDecodeMemoryLimit": "解码内存上限",
+  "cloudDecodeMemoryLimitDescription": "解码后图片的缓存预算，满额时优先释放最旧的图片；「不限制」按设备内存的四分之一缓存（512MB–2GB），由系统在内存紧张时回收",
+  "cloudDecodeMemoryUnlimited": "不限制",
+  "cloudShowVideoThumbnails": "自动提取视频缩略图",
+  "cloudShowVideoThumbnailsDescription": "从视频中抽取画面作为缩略图，会消耗流量",
+  "cloudShowThumbnails": "显示缩略图",
+  "cloudShowThumbnailsDescription": "关闭后浏览时只显示文件类型图标，打开文件前不下载任何内容",
+  "cloudShowVideoDuration": "显示视频时长",
+  "cloudShowVideoPlayIcon": "显示播放图标",
+  "cloudVideoThumbnailPosition": "取帧位置",
+  "cloudRebuildThumbnails": "重建缩略图",
+  "cloudRebuildDone": "已重建 {count} 个缩略图",
+  "@cloudRebuildDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudNextFolder": "下一个文件夹：{name}",
+  "cloudTabDisplay": "显示",
+  "cloudTabVideo": "视频",
+  "cloudTabProgress": "进度",
+  "cloudExportProgress": "导出查看进度",
+  "cloudImportProgress": "导入查看进度",
+  "cloudClearProgress": "清除全部进度",
+  "cloudClearProgressConfirmation": "清除所有文件夹的查看进度、已访问标记与滚动位置？播放位置会保留。此操作无法撤销。",
+  "cloudHideCompletedFolders": "隐藏已看完的文件夹",
+  "cloudAllCompletedHidden": "这里的文件夹都已看完，已被隐藏。",
+  "cloudShowCompletedFolders": "显示已看完的文件夹",
+  "cloudProgressSummary": "文件夹：{folders} · 图片：{images}",
+  "@cloudProgressSummary": {
+    "placeholders": {
+      "folders": {
+        "type": "int"
+      },
+      "images": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudDeleteFolderConfirmation": "删除文件夹「{name}」及其中的全部内容？此操作无法撤销。",
+  "cloudDeleteFailed": "删除失败",
+  "cloudBatchSelect": "批量选择",
+  "cloudSelectedCount": "已选择 {count} 项",
+  "cloudDeleteSelectedConfirmation": "确定删除选中的 {count} 个文件？此操作无法撤销。",
+  "cloudDeleteDone": "已删除 {deleted} 项，失败 {failed} 项",
+  "@cloudDeleteDone": {
+    "placeholders": {
+      "deleted": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudJumpOutsideServer": "只能跳转到当前服务内的地址",
+  "cloudProgressImported": "已导入 {count} 个文件夹的进度",
+  "cloudSortNameAsc": "名称升序（A→Z）",
+  "cloudSortNameDesc": "名称降序（Z→A）",
+  "cloudSortSizeAsc": "大小升序（小→大）",
+  "cloudSortSizeDesc": "大小降序（大→小）",
+  "cloudSortDurationAsc": "时长升序（短→长）",
+  "cloudSortDurationDesc": "时长降序（长→短）",
+  "cloudUseGlobalConcurrency": "使用全局值",
+  "cloudThumbnailRate": "抽帧速率（次/秒）",
+  "cloudThumbnailRatePerFolder": "仅对当前文件夹生效",
+  "cloudThumbnailCacheEnable": "启用 WebDAV 缩略图缓存",
+  "cloudThumbnailCacheEnableDescription": "缩略图按原目录结构保存到所选文件夹，文件名包含视频时长；换设备或清理本地缓存后可直接复用",
+  "cloudThumbnailCacheFolder": "缓存文件夹",
+  "cloudThumbnailCacheFolderUnset": "未选择",
+  "cloudThumbnailCachePickFolder": "选择缓存文件夹",
+  "cloudScrapePickFolder": "选择要刮削的文件夹",
+  "cloudScrapeStop": "停止刮削",
+  "cloudFolderPickerSelect": "使用此文件夹",
+  "cloudFolderPickerServer": "服务",
+  "cloudFolderPickerLoadError": "无法列出文件夹",
+  "cloudFolderPickerEmpty": "没有子文件夹",
+  "cloudFolderPickerNoWebDav": "请先添加 WebDAV 服务",
+  "cloudFolderPickerNoServers": "请先添加云服务",
+  "cloudScrapeDescription": "递归扫描所选文件夹及其子文件夹，在后台提前生成视频缩略图；缩略图已存在的视频直接跳过，不再读取。无法解码等失败的视频会记录在缓存文件夹中，下次刮削直接跳过，可在列表中单独重试。长按某一项可复制完整详情。",
+  "cloudScrapeLastTarget": "上次目标：{target}",
+  "cloudScrapeCurrentFolder": "正在处理：{folder}",
+  "cloudScrapeTitle": "缩略图刮削",
+  "cloudScrapeEntrySubtitle": "按原目录结构缓存缩略图与时长",
+  "cloudScrapeIdle": "尚未刮削",
+  "cloudScrapeStopped": "已停止",
+  "cloudScrapeCompleted": "已完成",
+  "cloudScrapePhaseScanning": "正在扫描文件夹…",
+  "cloudScrapePhaseScraping": "正在生成缩略图…",
+  "cloudScrapeProgressStatus": "已处理 {processed} / {total}",
+  "@cloudScrapeProgressStatus": {
+    "placeholders": {
+      "processed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudScrapeResultCounts": "新生成 {generated} · 复用缓存 {cached} · 失败 {failed}",
+  "@cloudScrapeResultCounts": {
+    "placeholders": {
+      "generated": {
+        "type": "int"
+      },
+      "cached": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudScrapeElapsed": "用时 {duration}",
+  "cloudScrapeRetryFailed": "重试失败项",
+  "cloudScrapeRetryItem": "重试此视频",
+  "cloudScrapeSelectFolder": "选择文件夹",
+  "cloudScrapeRestart": "重新刮削",
+  "cloudScrapeResume": "继续刮削",
+  "cloudScrapeFilterAll": "全部",
+  "cloudScrapeFilterFailed": "失败",
+  "cloudScrapeFilterSkipped": "已跳过",
+  "cloudScrapeFilterGenerated": "已生成",
+  "cloudScrapeFilterCached": "已存在",
+  "cloudScrapeFilterPending": "待处理",
+  "cloudScrapeEmptyItems": "没有符合条件的视频",
+  "cloudScrapeReason": "原因：{reason}",
+  "cloudScrapePercent": "取帧位置 {percent}%",
+  "cloudScrapeDurationLine": "时长 {duration}",
+  "cloudScrapeAttempts": "尝试 {attempts} 次",
+  "cloudScrapeRetrying": "正在重试失败项",
+  "cloudBatchRegenerate": "重新生成缩略图",
+  "cloudRegenerateProgress": "已处理 {done} / {total}",
+  "@cloudRegenerateProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudRegenerateDone": "重新生成完成：成功 {success} 个，失败 {failed} 个",
+  "@cloudRegenerateDone": {
+    "placeholders": {
+      "success": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudRegenerateNone": "没有选中的视频",
+  "cloudSpriteAction": "雪碧图",
+  "cloudSpriteLoadNow": "立即加载本文件夹雪碧图",
+  "cloudSpriteLoadNowDescription": "启用后打开文件夹会自动加载；也可在这里手动触发",
+  "cloudSpriteNotFound": "没有找到可用的雪碧图，缩略图保持不变",
+  "cloudSpriteDone": "雪碧图动画：已启用 {generated} 个，无雪碧图 {skipped} 个，失败 {failed} 个",
+  "@cloudSpriteDone": {
+    "placeholders": {
+      "generated": {
+        "type": "int"
+      },
+      "skipped": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudSpriteNone": "当前文件夹没有视频",
+  "cloudSpriteSettingsTitle": "雪碧图动画",
+  "cloudSpriteAnimationEnabled": "优先加载雪碧图",
+  "cloudSpriteAnimationEnabledDescription": "有雪碧图时按格子裁剪逐帧播放；没有雪碧图才加载缩略图",
+  "cloudSpriteAnimationSpeed": "播放速度",
+  "cloudSpriteAnimationOrder": "帧顺序",
+  "cloudSpriteOrderRowMajor": "逐行",
+  "cloudSpriteOrderColumnMajor": "逐列",
+  "cloudSpritePlaybackZone": "播放区域",
+  "cloudSpritePlaybackZoneDescription": "只有屏幕中心该高度范围内的雪碧图会播放；滚动到顶部或底部时会自动扩展到屏幕中心。100% 时全部播放",
+  "cloudSpriteStartPercent": "起始位置",
+  "cloudSpriteStartPercentDescription": "从雪碧图的该进度开始播放，之前的帧不再使用（例如 5×5、20% 时从第 6 帧开始）",
+  "cloudSortFieldName": "名称",
+  "cloudSortFieldSize": "大小",
+  "cloudSortFieldDuration": "时长",
+  "cloudSortAscending": "升序",
+  "cloudSortDescending": "降序",
+  "cloudLogTitle": "运行日志",
+  "cloudLogEntrySubtitle": "记录网络、缩略图、刮削等操作，便于定位问题",
+  "cloudLogEnable": "记录日志",
+  "cloudLogEnableDescription": "关闭后不再记录新的日志，已有的日志仍可查看；记录可左右滑动查看完整内容，长按复制单条",
+  "cloudLogClear": "清空日志",
+  "cloudLogClearConfirmation": "确定清空全部日志？",
+  "cloudLogCopy": "复制日志",
+  "cloudLogCopied": "日志已复制到剪贴板",
+  "cloudLogEmpty": "暂无日志",
+  "cloudLogCount": "{count} 条记录",
+  "cloudLogCategoryAll": "全部类别",
+  "cloudLogSave": "保存完整日志",
+  "cloudLogSaveDescription": "导出本次会话与历史记录的完整日志，可选择保存位置",
+  "cloudLogSaved": "日志已导出",
+  "cloudTrafficTitle": "实时流量",
+  "cloudTrafficActive": "正在传输 {count} 项",
+  "cloudDiagnosticsSection": "诊断",
+  "cloudVideoThumbnailPositionDescription": "取帧位置为视频总时长的百分比",
+  "cloudScrapeFoldersFailed": "{count} 个文件夹无法访问",
+  "cloudThumbnailCacheAndScrapeSection": "缩略图缓存与刮削",
+  "cloudScrapeDiscoveredStatus": "已处理 {processed} 个视频 · 已发现 {discovered} 个",
+  "@cloudScrapeDiscoveredStatus": {
+    "placeholders": {
+      "processed": {
+        "type": "int"
+      },
+      "discovered": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudScrapeFoldersStatus": "已扫描 {folders} 个文件夹 · 已完成 {done} 个",
+  "@cloudScrapeFoldersStatus": {
+    "placeholders": {
+      "folders": {
+        "type": "int"
+      },
+      "done": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudScrapeRunningSummary": "已处理 {processed} 个视频 · 失败 {failed} 个",
+  "@cloudScrapeRunningSummary": {
+    "placeholders": {
+      "processed": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudScrapeSkippedStatus": "跳过 {count} 个此前失败的视频（记录在缓存文件夹，可单独重试）",
+  "@cloudScrapeSkippedStatus": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudScrapeItemsTruncated": "结果过多，仅显示前 {count} 项",
+  "cloudScrapeCopied": "已复制到剪贴板",
+  "cloudMoreActions": "更多操作",
+  "cloudSaveToPhone": "保存到手机",
+  "cloudShare": "分享",
+  "cloudCopyLink": "复制链接",
+  "cloudLinkCopied": "链接已复制",
+  "cloudCopySelectedLinks": "复制所选链接",
+  "cloudLinksCopied": "已复制 {count} 条链接",
+  "@cloudLinksCopied": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudLocalCacheSection": "本地缓存",
+  "cloudDiskCacheSize": "磁盘缓存上限",
+  "cloudDiskCacheSizeDescription": "下载的原图、视频帧、雪碧图和小图副本占用的本地空间上限；选择「不限制」会一直增长，请确认存储空间充足",
+  "cloudDiskCacheUnlimited": "不限制",
+  "cloudDiskCacheUsage": "已用 {size}",
+  "@cloudDiskCacheUsage": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "cloudThumbnailDiskCache": "缓存缩略图副本",
+  "cloudThumbnailDiskCacheDescription": "把看过的图片保存为小尺寸副本，再次打开文件夹时直接本地显示，节省流量",
+  "cloudClearCacheConfirmation": "确定清理本地缓存？下载的原图、视频帧和雪碧图都需要重新下载。",
+  "cloudPreparingShare": "正在准备分享…",
+  "cloudTaskCancelled": "已取消，已处理 {done} / {total} 项",
+  "@cloudTaskCancelled": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudTransferDownloading": "正在下载 {done} / {total}",
+  "@cloudTransferDownloading": {
+    "placeholders": {
+      "done": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "cloudTransferPreparing": "正在准备…",
+  "cloudTransferCancelled": "已取消",
+  "cloudNumberInvalidRange": "请输入 {min} 到 {max} 之间的数值",
+  "@cloudNumberInvalidRange": {
+    "placeholders": {
+      "min": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
+  "@cloudTrafficActive": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudTrafficIdle": "当前没有正在传输的任务",
+  "cloudTrafficSession": "本次会话已传输 {total}",
+  "@cloudTrafficSession": {
+    "placeholders": {
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "cloudTrafficUnknownSize": "大小未知",
+  "cloudTrafficWaiting": "大小未知，可能正在等待服务器响应"
+}

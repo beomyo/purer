@@ -1,0 +1,29 @@
+name: purer_video_mpv
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ">=3.13.3 <4.0.0"
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  purer_model:
+    path: ../purer_model
+  purer_video:
+    path: ../purer_video
+  purer_utils:
+    path: ../purer_utils
+  collection:
+  image:
+  material_ui:
+  media_kit:
+  media_kit_libs_android_video:
+  media_kit_video:
+  path:
+
+dev_dependencies:
+  flutter_lints:
+
+flutter:

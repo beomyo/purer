@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Black-grey cloud with a photo window: cloud browsing for remote photos. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M35.059 75.089 C26.858 75.089 21.000 69.231 21.000 61.811 C21.000 54.781 26.077 49.314 33.107 48.142 C35.059 39.160 43.260 32.911 52.633 32.911 C62.006 32.911 69.817 39.160 72.160 47.751 C80.751 48.533 87.000 55.172 87.000 63.373 C87.000 70.012 81.923 75.089 75.284 75.089 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="21"
+                android:startY="32.9"
+                android:endX="87"
+                android:endY="75.1"
+                android:startColor="#FFFFFF"
+                android:endColor="#CFCFD6" />
+        </aapt:attr>
+    </path>
+    <path android:pathData="M44.934 42.493 L63.066 42.493 A4.882 4.882 0 0 1 67.948 47.375 L67.948 62.020 A4.882 4.882 0 0 1 63.066 66.902 L44.934 66.902 A4.882 4.882 0 0 1 40.052 62.020 L40.052 47.375 A4.882 4.882 0 0 1 44.934 42.493 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="40"
+                android:startY="42.5"
+                android:endX="68"
+                android:endY="66.9"
+                android:startColor="#A1A1AA"
+                android:endColor="#52525B" />
+        </aapt:attr>
+    </path>
+    <group>
+        <clip-path android:pathData="M44.934 42.493 L63.066 42.493 A4.882 4.882 0 0 1 67.948 47.375 L67.948 62.020 A4.882 4.882 0 0 1 63.066 66.902 L44.934 66.902 A4.882 4.882 0 0 1 40.052 62.020 L40.052 47.375 A4.882 4.882 0 0 1 44.934 42.493 Z" />
+        <path
+            android:fillColor="#FAFAFA"
+            android:pathData="M42.493 48.072 A2.790 2.790 0 1 0 48.072 48.072 A2.790 2.790 0 1 0 42.493 48.072 Z" />
+        <path
+            android:fillColor="#FAFAFA"
+            android:pathData="M 40.052 66.902 L 49.816 55.743 L 56.092 61.671 L 60.625 57.487 L 68.645 66.902 Z" />
+    </group>
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M44.934 42.493 L63.066 42.493 A4.882 4.882 0 0 1 67.948 47.375 L67.948 62.020 A4.882 4.882 0 0 1 63.066 66.902 L44.934 66.902 A4.882 4.882 0 0 1 40.052 62.020 L40.052 47.375 A4.882 4.882 0 0 1 44.934 42.493 Z"
+        android:strokeColor="#4DFFFFFF"
+        android:strokeWidth="0.523" />
+</vector>
