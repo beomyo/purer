@@ -148,9 +148,13 @@ class SpriteIndex:
         folder: str,
         limiter: RateLimiter,
         extract_timeout: float = EXTRACT_TIMEOUT,
+        serial: bool = False,
         task: TaskProgress | None = None,
     ) -> list[bytes]:
-        """按索引取回 count 帧（按时间顺序），失败抛 VideoError / SpriteIndexUnavailable。"""
+        """按索引取回 count 帧（按时间顺序），失败抛 VideoError / SpriteIndexUnavailable。
+
+        serial=True 时本地解码只用 1 个工作线程（大文件避免 CPU 打满）。
+        """
         positions = sprite_positions(self.duration, count)
         ranges = self.byte_ranges(positions)
         total_bytes = sum(length for _, length in ranges)
@@ -173,7 +177,9 @@ class SpriteIndex:
             local = self._build_sparse_file(tmpdir, ranges, chunks)
             if task is not None:
                 task.set_phase("本地抽帧", steps=len(positions))
-            return _extract_local(ffmpeg, local, positions, cell_width, extract_timeout, task)
+            return _extract_local(
+                ffmpeg, local, positions, cell_width, extract_timeout, task, serial
+            )
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -299,6 +305,7 @@ def _extract_local(
     width: int,
     timeout: float,
     task: TaskProgress | None,
+    serial: bool = False,
 ) -> list[bytes]:
     """在本地稀疏文件上抽帧；任何一帧失败都交给调用方回退远程路径。"""
 
@@ -332,7 +339,7 @@ def _extract_local(
         return index, jpeg
 
     frames: list[bytes | None] = [None] * len(positions)
-    workers = max(1, min(SPRITE_INDEX_FRAME_WORKERS, len(positions)))
+    workers = 1 if serial else max(1, min(SPRITE_INDEX_FRAME_WORKERS, len(positions)))
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(grab, index) for index in range(len(positions))]
         done = 0

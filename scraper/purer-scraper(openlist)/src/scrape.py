@@ -48,6 +48,7 @@ from .console import (
 from .constants import (
     AVI_SAFE_DURATION,
     DEFAULT_UNSUPPORTED_CODECS,
+    LARGE_VIDEO_BYTES,
     AVI_SAFE_POSITIONS,
     DEFAULT_SPRITE_MIN_DURATION,
     DEFAULT_SPRITE_WIDTH,
@@ -704,6 +705,12 @@ def scrape_one_sprite(
     """
     count = cols * rows
     log(f"  {cyan('▶')} {video.name}：开始生成雪碧图（{cols}x{rows}，{count} 帧）")
+    large_video = bool(video.size and video.size >= LARGE_VIDEO_BYTES)
+    if large_video:
+        log(
+            f"  {video.name}：文件 {video.size / 1_000_000_000:.1f}GB ≥ 8GB，"
+            "本地解码改为串行（避免大视频把 CPU 打满卡死）"
+        )
     if task is not None:
         task.set_phase("探测格式")
     avi = is_avi_url(video.url)
@@ -798,6 +805,7 @@ def scrape_one_sprite(
                 folder,
                 limiter,
                 extract_timeout=extract_timeout,
+                serial=large_video,
                 task=task,
             )
         except VideoSkipped:
@@ -875,6 +883,7 @@ def scrape_one_sprite(
                 folder,
                 limiter,
                 extract_timeout=extract_timeout,
+                serial=large_video,
                 task=task,
             )
         except TsWindowUnavailable as exc:
@@ -906,6 +915,7 @@ def scrape_one_sprite(
                 folder,
                 limiter,
                 extract_timeout=extract_timeout,
+                serial=large_video,
                 task=task,
             )
         except AviWindowUnavailable as exc:

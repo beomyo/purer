@@ -243,9 +243,10 @@ def extract_dv_frames(
     folder: str,
     limiter: RateLimiter,
     extract_timeout: float = EXTRACT_TIMEOUT,
+    serial: bool = False,
     task: TaskProgress | None = None,
 ) -> list[bytes]:
-    """按字节窗口从 DV AVI 取 count 帧。"""
+    """按字节窗口从 DV AVI 取 count 帧；serial=True 时只用一个工作线程。"""
     if duration <= 0:
         raise AviWindowUnavailable("时长为零")
     positions = sprite_positions(duration, count)
@@ -303,7 +304,7 @@ def extract_dv_frames(
         )
 
     frames: list[bytes | None] = [None] * count
-    workers = max(1, min(SPRITE_AVI_WORKERS, count))
+    workers = 1 if serial else max(1, min(SPRITE_AVI_WORKERS, count))
     try:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(work, index) for index in range(count)]

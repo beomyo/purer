@@ -206,9 +206,10 @@ def extract_ts_frames(
     folder: str,
     limiter: RateLimiter,
     extract_timeout: float = EXTRACT_TIMEOUT,
+    serial: bool = False,
     task: TaskProgress | None = None,
 ) -> list[bytes]:
-    """按字节窗口取 count 帧；失败抛 VideoError / TsWindowUnavailable。"""
+    """按字节窗口取 count 帧；serial=True 时窗口/解码只用 1 个工作线程。"""
     if duration <= 0:
         raise TsWindowUnavailable("时长为零")
     byte_rate = file_size / duration
@@ -259,7 +260,7 @@ def extract_ts_frames(
         )
 
     frames: list[bytes | None] = [None] * count
-    workers = max(1, min(SPRITE_TS_WORKERS, count))
+    workers = 1 if serial else max(1, min(SPRITE_TS_WORKERS, count))
     try:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(work, index) for index in range(count)]

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = "1.16.0"
+VERSION = "1.17.0"
 USER_AGENT = f"PurerDesktopScraper/{VERSION}"
 
 # ---- 失败标记（与 App 的 CloudMediaCache / CloudThumbnailScraper 一致） ----
@@ -121,6 +121,9 @@ SPRITE_AVI_WORKERS = 2                       # 本地解码并发（上游读取
 SPRITE_AVI_DECODE_TIMEOUT = 60.0             # 单帧本地解码超时
 SPRITE_AVI_MIN_CHUNK = 64 * 1024             # 合理的 DV 帧大小范围
 SPRITE_AVI_MAX_CHUNK = 600 * 1024
+# 大文件（>= 8GB）本地解码改为串行：4K/HEVC 大视频开多个解码进程会把 CPU 打满，
+# 表现为整个进程“卡死”。小于 8GB 仍用原来的并发批次。
+LARGE_VIDEO_BYTES = 8_000_000_000
 CONFIG_VERSION = 2          # 旧配置没有版本号，用来迁移过时的默认并发
 
 PROPFIND_BODY = (
