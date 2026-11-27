@@ -115,7 +115,7 @@ class ActivityResultStreamHandler(private val activity: Activity, arguments: Any
         }
     }
 
-    // streams a remote file (WebDAV over HTTP, or the SMB loopback bridge) to
+    // streams a remote file (WebDAV over HTTP) to
     // the user selected document. Downloading on the platform side keeps a
     // large video out of the Dart heap.
     private fun downloadUrl() {

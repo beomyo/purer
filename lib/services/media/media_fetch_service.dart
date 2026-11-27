@@ -63,7 +63,7 @@ abstract class MediaFetchService {
   Future<Uint8List> getThumbnailBytes({
     required bool decoded,
     required ThumbnailProviderKey request,
-    // URL to fetch instead of `request.uri` (e.g. the SMB loopback bridge)
+    // URL to fetch instead of `request.uri`
     String? uriOverride,
     // HTTP headers the platform needs to read the resource (e.g. WebDAV Basic auth)
     Map<String, String>? httpHeaders,

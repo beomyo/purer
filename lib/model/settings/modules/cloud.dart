@@ -82,7 +82,7 @@ mixin CloudSettings on SettingsAccess {
     if (cached != null) return cached;
     final stored = getStringList(SettingKeys.cloudServersKey);
     if (stored != null) return _cloudServersCache = stored.map(CloudServer.fromJsonString).nonNulls.toList();
-    // migrate configurations saved before the WebDAV / SMB merge
+    // migrate configurations saved before the WebDAV storage change
     final legacy = getStringList(SettingKeys.legacyCloudServersKey);
     if (legacy != null && legacy.isNotEmpty) {
       final migrated = legacy.map(CloudServer.fromJsonString).nonNulls.toList();
@@ -470,7 +470,7 @@ mixin CloudSettings on SettingsAccess {
     final id = cloudThumbnailCacheServerId;
     if (id == null || id.isEmpty) return null;
     for (final server in cloudServers) {
-      if (server.id == id && server.isWebDav) return server;
+      if (server.id == id) return server;
     }
     return null;
   }

@@ -18,7 +18,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
-// Shares a remote file (WebDAV over HTTP, or the SMB loopback bridge) through
+// Shares a remote file (WebDAV over HTTP) through
 // the system chooser. The file is streamed into the app cache, then handed to
 // the chooser as a FileProvider URI, so a large video never has to be held in
 // memory.

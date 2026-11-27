@@ -12,12 +12,12 @@ import 'package:purer/widgets/common/identity/empty.dart';
 import 'package:material_ui/material_ui.dart';
 
 // Picks a collection from one of the configured cloud services. Used for the
-// shared thumbnail cache destination (WebDAV only) and for choosing the folder
-// to scrape. The chosen pair is returned as `(server, folder url)`.
+// shared thumbnail cache destination, for choosing the folder to scrape, and
+// for picking a move destination. The chosen pair is returned as
+// `(server, folder url)`.
 class CloudFolderPickerPage extends StatefulWidget {
   static const routeName = '/cloud/folder-picker';
 
-  final bool webDavOnly;
   final String title;
   final String? initialServerId;
   final String? initialFolder;
@@ -25,7 +25,6 @@ class CloudFolderPickerPage extends StatefulWidget {
   const new({
     super.key,
     required this.title,
-    this.webDavOnly = false,
     this.initialServerId,
     this.initialFolder,
   });
@@ -46,7 +45,7 @@ class _CloudFolderPickerPageState extends State<CloudFolderPickerPage> {
   @override
   void initState() {
     super.initState();
-    _servers = settings.cloudServers.where((server) => !widget.webDavOnly || server.isWebDav).toList();
+    _servers = settings.cloudServers;
     if (_servers.isNotEmpty) {
       CloudServer? initial;
       for (final server in _servers) {
@@ -156,7 +155,7 @@ class _CloudFolderPickerPageState extends State<CloudFolderPickerPage> {
       body: _servers.isEmpty
           ? EmptyContent(
               icon: AIcons.cloud,
-              text: widget.webDavOnly ? l10n.cloudFolderPickerNoWebDav : l10n.cloudFolderPickerNoServers,
+              text: l10n.cloudFolderPickerNoServers,
             )
           : Column(
               children: [

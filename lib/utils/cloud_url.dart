@@ -15,8 +15,8 @@ String decodeCloudSegment(String segment) {
 
 String decodeCloudPath(String path) => path.split('/').map(decodeCloudSegment).join('/');
 
-// schemes a remote (cloud) entry can use: WebDAV over HTTP(S), or SMB
-const _cloudUriSchemes = ['http://', 'https://', 'smb://'];
+// schemes a remote (cloud) entry can use: WebDAV over HTTP(S)
+const _cloudUriSchemes = ['http://', 'https://'];
 
 bool isCloudUri(String uri) {
   for (final scheme in _cloudUriSchemes) {

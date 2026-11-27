@@ -1,6 +1,8 @@
 {
   "cancelTooltip": "取消",
   "entryActionDelete": "删除",
+  "entryActionMove": "移动",
+  "entryActionRename": "重命名",
   "themeBrightnessLight": "浅色",
   "themeBrightnessDark": "深色",
   "themeBrightnessBlack": "黑色",
@@ -62,16 +64,11 @@
   "cloudResumeToggleName": "显示/隐藏上次浏览的文件夹名",
   "cloudAddService": "添加服务",
   "cloudAddWebDav": "添加 WebDAV",
-  "cloudAddSmb": "添加 SMB",
   "cloudRemoveServer": "移除服务",
   "cloudEmptyServers": "未配置任何服务",
   "cloudServerAddress": "服务器地址",
-  "cloudSmbAddress": "SMB 地址",
-  "cloudSmbDomain": "域（可选）",
   "cloudTypeWebDav": "WebDAV",
-  "cloudTypeSmb": "SMB / Windows 共享",
   "cloudTypeWebDavHint": "WebDAV 服务器，如 AList、Nextcloud",
-  "cloudTypeSmbHint": "Windows / NAS 网络共享",
   "cloudSort": "排序",
   "cloudVideoBrowserTitle": "播放其他视频",
   "cloudDefaultViews": "默认视图",
@@ -185,6 +182,26 @@
       }
     }
   },
+  "cloudMovePickFolder": "选择目标文件夹",
+  "cloudMoveSameFolder": "文件已经在该文件夹中",
+  "cloudMoveSameServerOnly": "只能移动到同一个服务内",
+  "cloudMoveIntoItself": "不能移动到自身或其子文件夹",
+  "cloudMoveDone": "已移动 {moved} 项，失败 {failed} 项",
+  "@cloudMoveDone": {
+    "placeholders": {
+      "moved": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudMoveFailed": "移动失败",
+  "cloudRenameNameLabel": "名称",
+  "cloudRenameInvalid": "名称不能为空，也不能包含 / 或 \\",
+  "cloudRenameFailed": "重命名失败",
+  "cloudRenameDone": "已重命名",
   "cloudJumpOutsideServer": "只能跳转到当前服务内的地址",
   "cloudProgressImported": "已导入 {count} 个文件夹的进度",
   "cloudSortNameAsc": "名称升序（A→Z）",

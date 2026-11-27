@@ -6,7 +6,7 @@ import 'package:purer/model/settings/settings.dart';
 import 'package:purer/services/common/services.dart';
 import 'package:flutter/foundation.dart';
 
-// simple LRU disk cache for downloaded cloud payloads (WebDAV / SMB),
+// simple LRU disk cache for downloaded cloud payloads (WebDAV),
 // keyed by URL via a stable FNV-1a hash
 class CloudDiskCache {
   // the budget is a user setting; it is read on every check so a change (and a

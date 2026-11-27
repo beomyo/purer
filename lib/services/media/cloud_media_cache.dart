@@ -615,6 +615,144 @@ class CloudMediaCache {
     }
   }
 
+  // ---- moves ----
+
+  // Moves the mirrored frame, sprite sheet and failure marker of videos that
+  // were renamed or moved on the source, so the cache never keeps pointing at
+  // the old path. `moves` maps the old URL of each video to its URL after the
+  // move. One mirror listing per source folder; a cache miss is not an error.
+  Future<void> moveEntries(Map<String, String> moves) async {
+    if (!isReady || moves.isEmpty) return;
+    final client = _client();
+    if (client == null) return;
+    final byFolder = <String, Map<String, String>>{};
+    for (final item in moves.entries) {
+      if (item.key.isEmpty || item.value.isEmpty || item.key == item.value) continue;
+      byFolder.putIfAbsent(CloudSettings.cloudParentUrl(item.key), () => {})[item.key] = item.value;
+    }
+    if (byFolder.isEmpty) return;
+    final touched = <String>{};
+    var moved = 0;
+    for (final item in byFolder.entries) {
+      final sourceFolder = item.key;
+      final listing = await this.listing(sourceFolder, refresh: true);
+      for (final move in item.value.entries) {
+        final oldName = nameFor(move.key);
+        final newName = nameFor(move.value);
+        if (oldName.isEmpty || newName.isEmpty || oldName == newName) continue;
+        final targetFolder = CloudSettings.cloudParentUrl(move.value);
+        final targetDir = _dirUrlFor(targetFolder);
+        if (targetDir == null) continue;
+
+        final frame = listing.frames[oldName];
+        if (frame != null) {
+          final base = _withoutJpg(frame.name);
+          final renamed = _renamedBase(base, oldName, newName);
+          if (await _moveCacheFile(client, frame.url, targetDir, '$renamed.jpg')) moved++;
+        }
+        final sprite = listing.sprites[oldName];
+        if (sprite != null) {
+          final base = _withoutJpg(sprite.name);
+          final tag = _spriteTag.firstMatch(base);
+          if (tag != null) {
+            final renamed = _renamedBase(base.substring(0, tag.start), oldName, newName);
+            if (await _moveCacheFile(client, sprite.url, targetDir, '$renamed${base.substring(tag.start)}.jpg')) moved++;
+          }
+        }
+        final failure = listing.failures[oldName];
+        if (failure != null) {
+          final suffix = failure.name.startsWith(oldName) ? failure.name.substring(oldName.length) : _failureSuffix;
+          if (await _moveCacheFile(client, failure.url, targetDir, '$newName$suffix')) moved++;
+        }
+        touched.add(sourceFolder);
+        touched.add(targetFolder);
+      }
+    }
+    _invalidateListings(touched);
+    if (moved > 0) {
+      purerLog.info(PurerLogCategory.cache, '已移动共用缩略图 count=$moved');
+    }
+  }
+
+  // Moves (renames) the whole mirrored subtree of a folder, so a folder move
+  // does not leave its frames and sprites at the old path. A mirror that does
+  // not exist is not an error.
+  Future<void> moveFolder(String fromFolderUrl, String toFolderUrl) async {
+    if (!isReady || fromFolderUrl.isEmpty || toFolderUrl.isEmpty) return;
+    final client = _client();
+    final fromDir = _dirUrlFor(fromFolderUrl);
+    final toDir = _dirUrlFor(toFolderUrl);
+    if (client == null || fromDir == null || toDir == null || fromDir == toDir) return;
+    try {
+      final parent = _dirUrlFor(CloudSettings.cloudParentUrl(toFolderUrl));
+      if (parent != null) await _ensureDirectory(client, parent);
+      await client.move(fromDir, toDir, overwrite: true);
+      purerLog.info(PurerLogCategory.cache, '已移动共用缩略图文件夹 ${PurerLog.redactUrl(fromDir)} -> ${PurerLog.redactUrl(toDir)}');
+    } on CloudException catch (error) {
+      // the folder was never scraped: there is nothing to move
+      if (error.statusCode != 404) {
+        purerLog.warn(PurerLogCategory.cache, '移动共用缩略图文件夹失败 ${PurerLog.redactUrl(fromDir)} error=$error');
+      }
+    } catch (error) {
+      purerLog.warn(PurerLogCategory.cache, '移动共用缩略图文件夹失败 ${PurerLog.redactUrl(fromDir)} error=$error');
+    }
+    _invalidateSubtree(fromFolderUrl);
+    _invalidateSubtree(toFolderUrl);
+    _ensured.removeWhere((url) => url.startsWith(fromDir) || url.startsWith(toDir));
+  }
+
+  static String _withoutJpg(String name) {
+    return name.toLowerCase().endsWith('.jpg') ? name.substring(0, name.length - 4) : name;
+  }
+
+  // keeps the duration prefix of a cache file (`HH.MM.SS_`) and replaces the
+  // video name it was built from
+  static String _renamedBase(String base, String oldName, String newName) {
+    if (base == oldName) return newName;
+    if (base.endsWith(oldName)) return '${base.substring(0, base.length - oldName.length)}$newName';
+    return newName;
+  }
+
+  Future<bool> _moveCacheFile(WebDavClient client, String fromUrl, String targetDir, String fileName) async {
+    final targetUrl = '$targetDir${Uri.encodeComponent(fileName)}';
+    if (targetUrl == fromUrl) return false;
+    try {
+      await _ensureFolder(client, targetUrl);
+      // the cache is derived data: replacing a stale file with the moved one is
+      // exactly what a rename/move should do
+      await client.move(fromUrl, targetUrl, overwrite: true);
+      purerLog.debug(PurerLogCategory.cache, '缓存已移动 ${PurerLog.redactUrl(fromUrl)} -> ${PurerLog.redactUrl(targetUrl)}');
+      return true;
+    } on CloudException catch (error) {
+      // no cached file for this video: nothing to move
+      if (error.statusCode != 404) {
+        purerLog.warn(PurerLogCategory.cache, '移动缓存文件失败 ${PurerLog.redactUrl(fromUrl)} error=$error');
+      }
+      return false;
+    } catch (error) {
+      purerLog.warn(PurerLogCategory.cache, '移动缓存文件失败 ${PurerLog.redactUrl(fromUrl)} error=$error');
+      return false;
+    }
+  }
+
+  void _invalidateListings(Iterable<String> folderUrls) {
+    for (final url in folderUrls) {
+      final key = CloudSettings.cloudFolderKey(url);
+      _listings.remove(key);
+      _pending.remove(key);
+      _missingMirrors.remove(key);
+    }
+  }
+
+  // drops every memoized level of a folder subtree (a folder move changes the
+  // path of everything below it)
+  void _invalidateSubtree(String folderUrl) {
+    final key = CloudSettings.cloudFolderKey(folderUrl);
+    _listings.removeWhere((k, _) => k.startsWith(key));
+    _pending.removeWhere((k, _) => k.startsWith(key));
+    _missingMirrors.removeWhere((k, _) => k.startsWith(key));
+  }
+
   // Removes the mirrored subtree of a source folder when that folder (and
   // everything in it) is deleted, so the cache does not keep frames and
   // failure markers of files that no longer exist. The mirror folder follows
@@ -721,11 +859,15 @@ class CloudMediaCache {
     }
   }
 
-  // creates the folders leading to a file, one level at a time: WebDAV
-  // answers 409 when the parent of a MKCOL target does not exist (MKCOL does
-  // not create intermediate collections)
-  Future<void> _ensureFolder(WebDavClient client, String fileUrl) async {
-    final folder = fileUrl.substring(0, fileUrl.lastIndexOf('/') + 1);
+  // creates the folders leading to a file
+  Future<void> _ensureFolder(WebDavClient client, String fileUrl) {
+    return _ensureDirectory(client, fileUrl.substring(0, fileUrl.lastIndexOf('/') + 1));
+  }
+
+  // creates a folder and its parents, one level at a time: WebDAV answers 409
+  // when the parent of a MKCOL target does not exist (MKCOL does not create
+  // intermediate collections)
+  Future<void> _ensureDirectory(WebDavClient client, String folder) async {
     if (_ensured.contains(folder)) return;
     final root = _rootUrl();
     if (root == null) return;

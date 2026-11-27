@@ -350,7 +350,6 @@ class _CloudScrapePageState extends State<CloudScrapePage> {
         settings: const RouteSettings(name: CloudFolderPickerPage.routeName),
         builder: (context) => CloudFolderPickerPage(
           title: context.l10n.cloudScrapePickFolder,
-          webDavOnly: false,
         ),
       ),
     );

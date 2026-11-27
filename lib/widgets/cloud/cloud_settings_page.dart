@@ -242,14 +242,13 @@ class CloudSettingsPage extends StatelessWidget {
     return cloudFolderDisplay(folder, showRootSlash: false);
   }
 
-  Future<(CloudServer, String)?> _pickFolder(BuildContext context, {required bool webDavOnly, required String title, String? initialServerId, String? initialFolder}) {
+  Future<(CloudServer, String)?> _pickFolder(BuildContext context, {required String title, String? initialServerId, String? initialFolder}) {
     return Navigator.push<(CloudServer, String)>(
       context,
       MaterialPageRoute(
         settings: const RouteSettings(name: CloudFolderPickerPage.routeName),
         builder: (context) => CloudFolderPickerPage(
           title: title,
-          webDavOnly: webDavOnly,
           initialServerId: initialServerId,
           initialFolder: initialFolder,
         ),
@@ -260,7 +259,6 @@ class CloudSettingsPage extends StatelessWidget {
   Future<void> _pickCacheFolder(BuildContext context) async {
     final picked = await _pickFolder(
       context,
-      webDavOnly: true,
       title: context.l10n.cloudThumbnailCachePickFolder,
       initialServerId: settings.cloudThumbnailCacheServerId,
       initialFolder: settings.cloudThumbnailCacheFolderUrl,

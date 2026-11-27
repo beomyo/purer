@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 // One remote transfer the app is running right now (or has just finished), as
 // shown by the live traffic panel of the log page.
 //
-// Transfers are opened by the network backends themselves (WebDAV, SMB, the
+// Transfers are opened by the network backend itself (WebDAV, the
 // loopback video bridge) and by the video frame extraction, so the panel covers
 // everything that can pull bytes from a server, including the requests that
 // outlive the UI request that started them.

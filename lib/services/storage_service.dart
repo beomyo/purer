@@ -51,7 +51,7 @@ abstract class StorageService {
     required String sourceUri,
   });
 
-  // streams a remote file (WebDAV/SMB URL) to a user selected file, without
+  // streams a remote file (WebDAV URL) to a user selected file, without
   // holding it in memory, so videos of any size can be exported
   // returns whether operation succeeded (`null` if user cancelled)
   //

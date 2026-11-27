@@ -7,7 +7,6 @@ import 'package:purer/model/source/cloud/cloud_resource.dart';
 // in-player video picker, so both describe the same file the same way.
 PurerEntry cloudEntryFromResource(CloudResource resource, {required String mimeType, int id = 0}) {
   final dim = settings.cloudImageDimensions(resource.url);
-  final isSmb = resource.url.startsWith('smb://');
   return PurerEntry(
     id: id,
     uri: resource.url,
@@ -27,6 +26,6 @@ PurerEntry cloudEntryFromResource(CloudResource resource, {required String mimeT
     sourceDateTakenMillis: null,
     durationMillis: null,
     trashed: false,
-    origin: isSmb ? EntryOrigins.smb : EntryOrigins.webDav,
+    origin: EntryOrigins.webDav,
   );
 }

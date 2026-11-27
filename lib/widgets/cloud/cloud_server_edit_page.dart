@@ -3,7 +3,6 @@ import 'package:purer/model/source/cloud/cloud_server.dart';
 import 'package:purer/services/common/cloud_registry.dart';
 import 'package:purer/services/media/cloud_client.dart';
 import 'package:purer/services/media/cloud_media_cache.dart';
-import 'package:purer/services/media/smb_stream_server.dart';
 import 'package:purer/widgets/common/action_mixins/feedback.dart';
 import 'package:purer/widgets/common/basic/scaffold.dart';
 import 'package:purer/widgets/common/extensions/build_context.dart';
@@ -13,9 +12,8 @@ class CloudServerEditPage extends StatefulWidget {
   static const routeName = '/cloud/server';
 
   final CloudServer? server;
-  final String initialType;
 
-  const new({super.key, this.server, this.initialType = CloudServerType.webDav});
+  const new({super.key, this.server});
 
   @override
   State<CloudServerEditPage> createState() => _CloudServerEditPageState();
@@ -27,13 +25,9 @@ class _CloudServerEditPageState extends State<CloudServerEditPage> with Feedback
   late final TextEditingController _urlController;
   late final TextEditingController _usernameController;
   late final TextEditingController _passwordController;
-  late final TextEditingController _domainController;
   late bool _ignoreTlsErrors;
-  late String _type;
 
   bool get _isEditing => widget.server != null;
-
-  bool get _isSmb => _type == CloudServerType.smb;
 
   // Defaults applied when a new WebDAV service is saved with empty fields, so
   // the local OpenList/AList setup that most users of this app run can be added
@@ -45,7 +39,7 @@ class _CloudServerEditPageState extends State<CloudServerEditPage> with Feedback
   static const _defaultWebDavPassword = 'beomyo';
 
   void _fillWebDavDefaults() {
-    if (_isSmb || _isEditing) return;
+    if (_isEditing) return;
     if (_urlController.text.trim().isEmpty) _urlController.text = _defaultWebDavUrl;
     if (_nameController.text.trim().isEmpty) _nameController.text = _defaultWebDavName;
     if (_usernameController.text.isEmpty) _usernameController.text = _defaultWebDavUsername;
@@ -56,12 +50,10 @@ class _CloudServerEditPageState extends State<CloudServerEditPage> with Feedback
   void initState() {
     super.initState();
     final server = widget.server;
-    _type = server?.type ?? widget.initialType;
     _nameController = TextEditingController(text: server?.name ?? '');
     _urlController = TextEditingController(text: server?.url ?? '');
     _usernameController = TextEditingController(text: server?.username ?? '');
     _passwordController = TextEditingController(text: server?.password ?? '');
-    _domainController = TextEditingController(text: server?.domain ?? '');
     _ignoreTlsErrors = server?.ignoreTlsErrors ?? false;
   }
 
@@ -71,41 +63,25 @@ class _CloudServerEditPageState extends State<CloudServerEditPage> with Feedback
     _urlController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
-    _domainController.dispose();
     super.dispose();
-  }
-
-  // `smb_connect` dials the default SMB port, so the port is dropped and the
-  // address is normalized to `smb://host[/share][/]`
-  static String _normalizeSmbUrl(String input) {
-    var text = input.trim();
-    if (text.isEmpty) return text;
-    if (!text.contains('://')) text = 'smb://$text';
-    final uri = Uri.tryParse(text);
-    if (uri == null || uri.host.isEmpty) return text;
-    final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
-    return Uri(scheme: 'smb', host: uri.host, path: segments.isEmpty ? '/' : '/${segments.join('/')}/').toString();
   }
 
   CloudServer _buildServer() {
     final server = widget.server;
-    final url = _isSmb ? _normalizeSmbUrl(_urlController.text) : _urlController.text.trim();
     return CloudServer(
       id: server?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
       name: _nameController.text.trim(),
-      type: _type,
-      url: url,
+      url: _urlController.text.trim(),
       username: _usernameController.text,
       password: _passwordController.text,
-      domain: _isSmb ? _domainController.text.trim() : '',
-      ignoreTlsErrors: _isSmb ? false : _ignoreTlsErrors,
+      ignoreTlsErrors: _ignoreTlsErrors,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final title = _isEditing ? l10n.webdavEditServer : (_isSmb ? l10n.cloudAddSmb : l10n.cloudAddWebDav);
+    final title = _isEditing ? l10n.webdavEditServer : l10n.cloudAddWebDav;
     return PurerScaffold(
       appBar: AppBar(
         title: Text(title),
@@ -134,19 +110,13 @@ class _CloudServerEditPageState extends State<CloudServerEditPage> with Feedback
               keyboardType: TextInputType.url,
               autocorrect: false,
               decoration: InputDecoration(
-                labelText: _isSmb ? l10n.cloudSmbAddress : l10n.cloudServerAddress,
-                hintText: _isSmb ? '192.168.1.10/share' : 'https://host:port/dav/',
+                labelText: l10n.cloudServerAddress,
+                hintText: 'https://host:port/dav/',
                 border: const OutlineInputBorder(),
               ),
               validator: (value) {
                 final text = value?.trim() ?? '';
                 if (text.isEmpty) return l10n.cloudServerAddress;
-                if (_isSmb) {
-                  final normalized = _normalizeSmbUrl(text);
-                  final uri = Uri.tryParse(normalized);
-                  if (uri == null || uri.host.isEmpty) return l10n.cloudSmbAddress;
-                  return null;
-                }
                 final uri = Uri.tryParse(text);
                 if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https') || uri.host.isEmpty) {
                   return l10n.cloudServerAddress;
@@ -173,25 +143,13 @@ class _CloudServerEditPageState extends State<CloudServerEditPage> with Feedback
                 border: const OutlineInputBorder(),
               ),
             ),
-            if (_isSmb) ...[
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _domainController,
-                autocorrect: false,
-                decoration: InputDecoration(
-                  labelText: l10n.cloudSmbDomain,
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-            ] else ...[
-              const SizedBox(height: 8),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _ignoreTlsErrors,
-                title: Text(l10n.webdavIgnoreTlsErrors),
-                onChanged: (value) => setState(() => _ignoreTlsErrors = value),
-              ),
-            ],
+            const SizedBox(height: 8),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _ignoreTlsErrors,
+              title: Text(l10n.webdavIgnoreTlsErrors),
+              onChanged: (value) => setState(() => _ignoreTlsErrors = value),
+            ),
             const SizedBox(height: 16),
             OutlinedButton.icon(
               onPressed: _testConnection,
@@ -230,7 +188,6 @@ class _CloudServerEditPageState extends State<CloudServerEditPage> with Feedback
       // drop the pooled connections and mirror listings of the old
       // configuration, so the new URL/credentials apply immediately
       cloudRegistry.closeServer(server.id);
-      smbStreamServer.closeServer(server.id);
       cloudMediaCache.reset();
       settings.updateCloudServer(server);
     } else {

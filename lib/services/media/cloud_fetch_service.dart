@@ -822,7 +822,7 @@ class CloudSpriteAnimationSummary {
 }
 
 // Decorates the platform media fetch service so that remote URIs
-// (WebDAV / SMB entries) are served from the network while every other URI
+// (WebDAV entries) are served from the network while every other URI
 // keeps using the platform implementation unchanged.
 class CloudAwareMediaFetchService implements MediaFetchService {
   // the platform stream carries a one byte trailer describing the payload

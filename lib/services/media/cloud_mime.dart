@@ -1,7 +1,7 @@
 import 'package:purer/model/source/cloud/cloud_resource.dart';
 import 'package:purer/ref/mime_types.dart';
 
-// mime sniffing for remote (WebDAV/SMB) resources, shared by the cloud browser
+// mime sniffing for remote (WebDAV) resources, shared by the cloud browser
 // and the in-player video picker, so media detection stays identical
 String cloudMimeForResource(CloudResource resource) {
   if (resource.isCollection) return 'application/octet-stream';

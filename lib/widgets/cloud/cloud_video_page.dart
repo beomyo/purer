@@ -27,9 +27,9 @@ import 'package:material_ui/material_ui.dart';
 // what the player's "more" menu can do with the current video
 enum _VideoMenuAction { save, share, copyLink }
 
-// Full screen video player for remote (WebDAV / SMB) entries, reusing the app's
+// Full screen video player for remote (WebDAV) entries, reusing the app's
 // video stack. The mpv backend opens `entry.uri`, which is either an
-// authenticated URL or the loopback SMB bridge.
+// authenticated URL.
 class CloudVideoPage extends StatefulWidget {
   static const routeName = '/cloud/video';
   static const List<double> _speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -261,7 +261,7 @@ class _CloudVideoPageState extends State<CloudVideoPage> with FeedbackMixin {
 
     settings.markCloudVisited(storageUri);
     // the video backend streams the file itself, so hand it a URL it can
-    // consume: an authenticated URL for WebDAV, a loopback bridge for SMB
+    // consume: an authenticated URL carrying the credentials
     final playableUrl = await cloudRegistry.playbackUrl(storageUri);
     if (!mounted) return;
     final playableEntry = playableUrl == storageUri ? entry : entry.copyWith(uri: playableUrl);

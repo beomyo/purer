@@ -2,7 +2,6 @@ import 'package:purer/model/settings/settings.dart';
 import 'package:purer/model/source/cloud/cloud_server.dart';
 import 'package:purer/services/common/cloud_registry.dart';
 import 'package:purer/services/media/cloud_media_cache.dart';
-import 'package:purer/services/media/smb_stream_server.dart';
 import 'package:purer/theme/icons.dart';
 import 'package:purer/widgets/cloud/cloud_browser_page.dart';
 import 'package:purer/widgets/cloud/cloud_page_route.dart';
@@ -14,7 +13,7 @@ import 'package:purer/widgets/common/identity/empty.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 
-// Management page for every remote service (WebDAV / SMB).
+// Management page for every remote service (WebDAV).
 class CloudServerListPage extends StatelessWidget {
   static const routeName = '/cloud/servers';
 
@@ -118,41 +117,7 @@ class CloudServerListPage extends StatelessWidget {
     return null;
   }
 
-  // the "+" button asks which kind of service to add
-  Future<void> _addServer(BuildContext context) async {
-    final type = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text(context.l10n.cloudAddService, style: Theme.of(context).textTheme.titleMedium),
-            ),
-            ListTile(
-              leading: const Icon(AIcons.cloud),
-              title: Text(context.l10n.cloudTypeWebDav),
-              subtitle: Text(context.l10n.cloudTypeWebDavHint),
-              onTap: () => Navigator.pop(context, CloudServerType.webDav),
-            ),
-            ListTile(
-              leading: const Icon(Icons.storage_rounded),
-              title: Text(context.l10n.cloudTypeSmb),
-              subtitle: Text(context.l10n.cloudTypeSmbHint),
-              onTap: () => Navigator.pop(context, CloudServerType.smb),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-    if (type == null || !context.mounted) return;
-    await _editServer(context, null, type: type);
-  }
+  Future<void> _addServer(BuildContext context) => _editServer(context, null);
 
   void _browse(BuildContext context, CloudServer server, {String? initialUrl}) {
     Navigator.push(
@@ -164,12 +129,12 @@ class CloudServerListPage extends StatelessWidget {
     );
   }
 
-  Future<void> _editServer(BuildContext context, CloudServer? server, {String type = CloudServerType.webDav}) async {
+  Future<void> _editServer(BuildContext context, CloudServer? server) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
         settings: const RouteSettings(name: CloudServerEditPage.routeName),
-        builder: (context) => CloudServerEditPage(server: server, initialType: type),
+        builder: (context) => CloudServerEditPage(server: server),
       ),
     );
   }
@@ -196,7 +161,6 @@ class CloudServerListPage extends StatelessWidget {
     if (confirmed ?? false) {
       settings.removeCloudServer(server.id);
       cloudRegistry.closeServer(server.id);
-      smbStreamServer.closeServer(server.id);
       cloudMediaCache.reset();
       // the shared thumbnail cache cannot point at a service that is gone
       if (settings.cloudThumbnailCacheServerId == server.id) {
@@ -296,7 +260,7 @@ class _ServerTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final typeLabel = server.isSmb ? l10n.cloudTypeSmb : l10n.cloudTypeWebDav;
+    final typeLabel = l10n.cloudTypeWebDav;
     return ListTile(
       // the same row as a folder inside the browser: leading column with the
       // icon and a small label, title only (no subtitle, no URL)
@@ -307,7 +271,7 @@ class _ServerTile extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(server.isSmb ? Icons.storage_rounded : AIcons.cloud),
+            const Icon(AIcons.cloud),
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(

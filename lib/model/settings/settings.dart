@@ -10,7 +10,7 @@ import 'package:purer_video/purer_video.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 
-// Cloud-only settings: the WebDAV / SMB configuration, viewing options and the
+// Cloud-only settings: the WebDAV configuration, viewing options and the
 // handful of app-level preferences the cloud pages rely on (locale, theme and
 // video playback). Everything related to the local media library was removed.
 final Settings settings = Settings._private();

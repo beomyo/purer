@@ -6,6 +6,7 @@ import 'package:purer/image_providers/cloud_sprite_provider.dart';
 import 'package:purer/model/entry/cache.dart';
 import 'package:purer/model/entry/entry.dart';
 import 'package:purer/model/entry/extensions/props.dart';
+import 'package:purer/model/settings/modules/cloud.dart';
 import 'package:purer/model/settings/settings.dart';
 import 'package:purer/model/source/cloud/cloud_entry.dart';
 import 'package:purer/model/source/cloud/cloud_resource.dart';
@@ -30,6 +31,7 @@ import 'package:purer/widgets/common/extensions/build_context.dart';
 import 'package:purer/widgets/common/identity/empty.dart';
 import 'package:purer/widgets/common/identity/scroll_thumb.dart';
 import 'package:purer/widgets/common/thumbnail/image.dart';
+import 'package:purer/widgets/cloud/cloud_folder_picker.dart';
 import 'package:purer/widgets/cloud/cloud_options_sheet.dart';
 import 'package:purer/widgets/cloud/cloud_video_page.dart';
 import 'package:purer/widgets/cloud/cloud_view_options.dart';
@@ -1517,6 +1519,367 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
     );
   }
 
+  // ---- move / rename ----
+
+  static (String, String) _splitNameExtension(String name) {
+    final dot = name.lastIndexOf('.');
+    if (dot <= 0 || dot == name.length - 1) return (name, '');
+    return (name.substring(0, dot), name.substring(dot));
+  }
+
+  static String _entryUrlIn(String folderUrl, String name) {
+    final folder = folderUrl.endsWith('/') ? folderUrl : '$folderUrl/';
+    return '$folder${Uri.encodeComponent(name)}';
+  }
+
+  static String _folderUrlIn(String folderUrl, String name) => '${_entryUrlIn(folderUrl, name)}/';
+
+  Future<String?> _promptNewName({required String title, required String initialName, String suffix = ''}) async {
+    final controller = TextEditingController(text: initialName);
+    controller.selection = TextSelection(baseOffset: 0, extentOffset: initialName.length);
+    String? error;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          void submit() {
+            final value = controller.text.trim();
+            if (value.isEmpty || value.contains('/') || value.contains('\\') || value == '.' || value == '..') {
+              setDialogState(() => error = context.l10n.cloudRenameInvalid);
+              return;
+            }
+            Navigator.pop(context, value);
+          }
+
+          return AlertDialog(
+            title: Text(title),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: context.l10n.cloudRenameNameLabel,
+                suffixText: suffix.isEmpty ? null : suffix,
+                errorText: error,
+              ),
+              onSubmitted: (_) => submit(),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: Text(context.l10n.webdavActionCancel)),
+              TextButton(onPressed: submit, child: Text(context.l10n.webdavActionSave)),
+            ],
+          );
+        },
+      ),
+    );
+    // the dialog may still be animating out: disposing right away would leave
+    // the TextField using a disposed controller
+    unawaited(Future<void>.delayed(const Duration(milliseconds: 500), controller.dispose));
+    return result;
+  }
+
+  // the picker may browse every service, but a WebDAV MOVE cannot cross one
+  Future<(CloudServer, String)?> _pickMoveDestination({String? initialFolder}) async {
+    final picked = await Navigator.push<(CloudServer, String)>(
+      context,
+      MaterialPageRoute(
+        settings: const RouteSettings(name: CloudFolderPickerPage.routeName),
+        builder: (context) => CloudFolderPickerPage(
+          title: context.l10n.cloudMovePickFolder,
+          initialServerId: widget.server.id,
+          initialFolder: initialFolder,
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return null;
+    final (server, folder) = picked;
+    if (server.id != widget.server.id) {
+      _showMessage(context.l10n.cloudMoveSameServerOnly);
+      return null;
+    }
+    return (server, folder.endsWith('/') ? folder : '$folder/');
+  }
+
+  // forgets a folder's cached listing and its parent's folder list, so a move
+  // or rename is visible the next time that folder is opened
+  void _invalidateFolderSnapshot(String url) {
+    final key = CloudSettings.cloudFolderKey(url);
+    final removed = _folderSnapshots.remove(key);
+    if (removed != null) {
+      _snapshotEntryCount -= removed.folders.length + removed.media.length;
+      _forgetSnapshotKeys(removed);
+    }
+    _folderLists.remove(key);
+    _folderLists.remove(CloudSettings.cloudParentUrl(key));
+  }
+
+  Future<void> _refreshAfterMutation(Iterable<String> folders) async {
+    for (final url in folders) {
+      _invalidateFolderSnapshot(url);
+    }
+    if (!mounted) return;
+    await _fetch(keepContent: true);
+  }
+
+  // a folder move changes the URLs below it: drop their cached listings and
+  // remove them from the navigation trail, so going back never opens a path
+  // that no longer exists
+  void _purgeFolderSubtree(String folderUrl) {
+    final prefix = CloudSettings.cloudFolderKey(folderUrl);
+    for (final key in _folderSnapshots.keys.where((k) => k.startsWith(prefix)).toList()) {
+      final removed = _folderSnapshots.remove(key);
+      if (removed == null) continue;
+      _snapshotEntryCount -= removed.folders.length + removed.media.length;
+      _forgetSnapshotKeys(removed);
+      _folderLists.remove(key);
+    }
+    var removedBefore = 0;
+    for (var i = 0; i < _trail.length; i++) {
+      if (!_trail[i].startsWith(prefix)) continue;
+      if (i < _trailIndex) removedBefore++;
+    }
+    _trail.removeWhere((url) => url.startsWith(prefix));
+    if (_trail.isEmpty) return;
+    _trailIndex = (_trailIndex - removedBefore).clamp(0, _trail.length - 1);
+  }
+
+  // drops the local payload of moved entries and carries their playback
+  // progress to the new URLs, then moves the shared mirror so the thumbnail and
+  // sprite side follows the video side
+  Future<void> _syncMovedEntries(Map<String, String> moves, Map<String, PurerEntry> entries) async {
+    for (final item in moves.entries) {
+      final oldUri = item.key;
+      final newUri = item.value;
+      final entry = entries[oldUri];
+      if (entry != null) await evictCloudThumbnailLocal(entry);
+      if (entry?.isImage ?? false) settings.forgetCloudImage(oldUri);
+      if (entry?.isVideo ?? false) {
+        final position = settings.cloudVideoPosition(oldUri) ?? 0;
+        final duration = settings.cloudVideoDuration(oldUri) ?? 0;
+        if (duration > 0) settings.setCloudVideoDuration(newUri, duration);
+        if (position > 0) settings.setCloudVideoProgress(newUri, position, duration);
+        settings.setCloudVideoProgress(oldUri, 0, 0);
+      }
+      _aspects.remove(oldUri);
+      _spriteUris.remove(oldUri);
+      _knownSpriteUris.remove(oldUri);
+    }
+    try {
+      await cloudMediaCache.moveEntries(moves);
+    } catch (error) {
+      purerLog.warn(PurerLogCategory.cache, '同步移动后的缩略图缓存失败 error=$error');
+    }
+  }
+
+  Future<void> _syncFolderMove(String fromFolderUrl, String toFolderUrl) async {
+    try {
+      await cloudMediaCache.moveFolder(fromFolderUrl, toFolderUrl);
+    } catch (error) {
+      purerLog.warn(PurerLogCategory.cache, '同步移动后的缩略图缓存失败 error=$error');
+    }
+    final fromBase = CloudSettings.cloudFolderKey(fromFolderUrl);
+    _spriteUris.removeWhere((uri) => uri.startsWith(fromBase));
+    _knownSpriteUris.removeWhere((uri) => uri.startsWith(fromBase));
+  }
+
+  Future<void> _moveSelectedEntries() async {
+    final selected = List.of(_selectedEntries);
+    if (selected.isEmpty) return;
+    final picked = await _pickMoveDestination(initialFolder: _currentUrl);
+    if (picked == null || !mounted) return;
+    final targetFolder = picked.$2;
+    if (_sameFolder(targetFolder, _currentUrl)) {
+      _showMessage(context.l10n.cloudMoveSameFolder);
+      return;
+    }
+    final entriesByOldUri = {for (final entry in selected) entry.uri: entry};
+    final moves = <String, String>{
+      for (final entry in selected) entry.uri: _entryUrlIn(targetFolder, CloudMediaCache.nameFor(entry.uri)),
+    }..removeWhere((oldUri, newUri) => oldUri == newUri);
+    if (moves.isEmpty) return;
+
+    final client = cloudRegistry.clientForServer(widget.server);
+    if (client == null) return;
+
+    final total = moves.length;
+    final progress = ValueNotifier<(int, int)>((0, total));
+    final cancelled = ValueNotifier(false);
+    BuildContext? dialogContext;
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          dialogContext = context;
+          return _TaskProgressDialog(
+            title: context.l10n.entryActionMove,
+            progress: progress,
+            cancelled: cancelled,
+          );
+        },
+      ),
+    );
+    await WidgetsBinding.instance.endOfFrame;
+
+    final moved = <String, String>{};
+    var failed = 0;
+    for (final item in moves.entries) {
+      if (cancelled.value) break;
+      try {
+        await client.move(item.key, item.value);
+        moved[item.key] = item.value;
+      } catch (error) {
+        failed++;
+        purerLog.warn(PurerLogCategory.network, '移动失败 ${PurerLog.redactUrl(item.key)} error=$error');
+      }
+      progress.value = (progress.value.$1 + 1, total);
+    }
+    final wasCancelled = cancelled.value;
+
+    final ctx = dialogContext;
+    if (ctx != null && ctx.mounted) Navigator.of(ctx).pop();
+    if (!mounted) return;
+    _exitSelectionMode();
+    if (moved.isNotEmpty) await _syncMovedEntries(moved, entriesByOldUri);
+    await _refreshAfterMutation([_currentUrl, targetFolder]);
+    if (!mounted) return;
+    _showMessage(
+      wasCancelled ? context.l10n.cloudTaskCancelled(progress.value.$1, total) : context.l10n.cloudMoveDone(moved.length, failed),
+    );
+  }
+
+  Future<void> _renameSelectedEntry() async {
+    if (_selectedEntries.length != 1) return;
+    final entry = _selectedEntries.first;
+    final oldUri = entry.uri;
+    final oldName = CloudMediaCache.nameFor(oldUri);
+    final (base, extension) = _splitNameExtension(oldName);
+    final newBase = await _promptNewName(
+      title: context.l10n.entryActionRename,
+      initialName: base,
+      suffix: extension,
+    );
+    if (newBase == null || !mounted) return;
+    final newName = '$newBase$extension';
+    if (newName == oldName) {
+      _exitSelectionMode();
+      return;
+    }
+    final parent = CloudSettings.cloudParentUrl(oldUri);
+    final newUri = _entryUrlIn(parent, newName);
+    final client = cloudRegistry.clientForServer(widget.server);
+    if (client == null) return;
+    try {
+      await client.move(oldUri, newUri);
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('${context.l10n.cloudRenameFailed}: ${cloudErrorText(error)}');
+      return;
+    }
+    if (!mounted) return;
+    _exitSelectionMode();
+    await _syncMovedEntries({oldUri: newUri}, {oldUri: entry});
+    await _refreshAfterMutation([parent]);
+    if (mounted) _showMessage(context.l10n.cloudRenameDone);
+  }
+
+  Future<void> _moveFolder(CloudResource folder) async {
+    final parent = CloudSettings.cloudParentUrl(folder.url);
+    final picked = await _pickMoveDestination(initialFolder: parent);
+    if (picked == null || !mounted) return;
+    final targetParent = picked.$2;
+    final targetUrl = _folderUrlIn(targetParent, folder.name);
+    final source = CloudSettings.cloudFolderKey(folder.url);
+    if (_sameFolder(targetUrl, folder.url)) return;
+    if (targetUrl.startsWith(source)) {
+      _showMessage(context.l10n.cloudMoveIntoItself);
+      return;
+    }
+    final client = cloudRegistry.clientForServer(widget.server);
+    if (client == null) return;
+    try {
+      await client.move(folder.url, targetUrl);
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('${context.l10n.cloudMoveFailed}: ${cloudErrorText(error)}');
+      return;
+    }
+    await _syncFolderMove(folder.url, targetUrl);
+    _purgeFolderSubtree(folder.url);
+    await _refreshAfterMutation([folder.url, parent, targetParent]);
+    if (mounted) _showMessage(context.l10n.cloudMoveDone(1, 0));
+  }
+
+  Future<void> _renameFolder(CloudResource folder) async {
+    final newName = await _promptNewName(title: context.l10n.entryActionRename, initialName: folder.name);
+    if (newName == null || !mounted || newName == folder.name) return;
+    final parent = CloudSettings.cloudParentUrl(folder.url);
+    final targetUrl = _folderUrlIn(parent, newName);
+    final client = cloudRegistry.clientForServer(widget.server);
+    if (client == null) return;
+    try {
+      await client.move(folder.url, targetUrl);
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('${context.l10n.cloudRenameFailed}: ${cloudErrorText(error)}');
+      return;
+    }
+    await _syncFolderMove(folder.url, targetUrl);
+    _purgeFolderSubtree(folder.url);
+    await _refreshAfterMutation([folder.url, parent]);
+    if (mounted) _showMessage(context.l10n.cloudRenameDone);
+  }
+
+  // long press on a folder row: pick one of the folder operations
+  Future<void> _showFolderActions(CloudResource folder) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                folder.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.drive_file_move_outline),
+              title: Text(context.l10n.entryActionMove),
+              onTap: () => Navigator.pop(context, 'move'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.drive_file_rename_outline),
+              title: Text(context.l10n.entryActionRename),
+              onTap: () => Navigator.pop(context, 'rename'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: Text(context.l10n.entryActionDelete),
+              onTap: () => Navigator.pop(context, 'delete'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'move':
+        await _moveFolder(folder);
+      case 'rename':
+        await _renameFolder(folder);
+      case 'delete':
+        await _deleteFolder(folder);
+    }
+  }
+
   // Re-extracts the thumbnail of the selected videos, for the frames that are
   // not representative (black leader, solid color, wrong position). The cached
   // frame is dropped first, locally and in the shared WebDAV cache.
@@ -1801,7 +2164,7 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
       // remember that this video was opened, and where we stopped watching
       setState(() => settings.markCloudVisited(entry.uri));
       // the video backend streams the file itself, so hand it a URL it can
-      // consume: an authenticated URL for WebDAV, a loopback bridge for SMB
+      // consume: an authenticated URL carrying the credentials
       final playableUrl = await cloudRegistry.playbackUrl(entry.uri);
       if (!mounted) return;
       final playableEntry = playableUrl == entry.uri ? entry : entry.copyWith(uri: playableUrl);
@@ -2192,19 +2555,43 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
         onPressed: visible.isEmpty ? null : _toggleSelectAll,
       ),
       IconButton(
-        tooltip: context.l10n.cloudBatchRegenerate,
-        icon: const Icon(Icons.autorenew),
-        onPressed: _selectedEntries.any((e) => e.isVideo) ? _regenerateSelectedThumbnails : null,
+        tooltip: context.l10n.entryActionMove,
+        icon: const Icon(Icons.drive_file_move_outline),
+        onPressed: _selectedEntries.isEmpty ? null : _moveSelectedEntries,
       ),
       IconButton(
-        tooltip: context.l10n.cloudCopySelectedLinks,
-        icon: const Icon(Icons.link),
-        onPressed: _selectedEntries.isEmpty ? null : _copySelectedLinks,
+        tooltip: context.l10n.entryActionRename,
+        icon: const Icon(Icons.drive_file_rename_outline),
+        onPressed: _selectedEntries.length == 1 ? _renameSelectedEntry : null,
       ),
       IconButton(
         tooltip: context.l10n.entryActionDelete,
         icon: const Icon(Icons.delete_outline),
         onPressed: _selectedEntries.isEmpty ? null : _deleteSelectedEntries,
+      ),
+      PopupMenuButton<String>(
+        tooltip: context.l10n.cloudMoreActions,
+        icon: const Icon(Icons.more_vert),
+        onSelected: (value) {
+          switch (value) {
+            case 'regenerate':
+              _regenerateSelectedThumbnails();
+            case 'copy':
+              _copySelectedLinks();
+          }
+        },
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            value: 'regenerate',
+            enabled: _selectedEntries.any((e) => e.isVideo),
+            child: Text(context.l10n.cloudBatchRegenerate),
+          ),
+          PopupMenuItem(
+            value: 'copy',
+            enabled: _selectedEntries.isNotEmpty,
+            child: Text(context.l10n.cloudCopySelectedLinks),
+          ),
+        ],
       ),
     ];
   }
@@ -2359,7 +2746,7 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
       ),
       title: Text(folder.name, style: TextStyle(color: color)),
       onTap: () => _openFolder(folder),
-      onLongPress: () => _deleteFolder(folder),
+      onLongPress: () => _showFolderActions(folder),
     );
   }
 
@@ -2687,6 +3074,7 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
                     onAspect: (aspect) => _onTileAspect(entries[indices[k]].uri, aspect),
                     onImagePointerDown: entries[indices[k]].isImage ? () => _pointerImageUri = entries[indices[k]].uri : null,
                     onTap: () => _openEntry(entries, entries[indices[k]]),
+                    onLongPress: entries[indices[k]].isVideo ? () => _onEntryLongPress(entries[indices[k]]) : null,
                     selectionMode: _selectionMode,
                     isSelected: _selectedEntries.contains(entries[indices[k]]),
                   ),
@@ -2740,6 +3128,7 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
                     onAspect: (aspect) => _onTileAspect(entries[indices[k]].uri, aspect),
                     onImagePointerDown: entries[indices[k]].isImage ? () => _pointerImageUri = entries[indices[k]].uri : null,
                     onTap: () => _openEntry(entries, entries[indices[k]]),
+                    onLongPress: entries[indices[k]].isVideo ? () => _onEntryLongPress(entries[indices[k]]) : null,
                     selectionMode: _selectionMode,
                     isSelected: _selectedEntries.contains(entries[indices[k]]),
                   ),

@@ -316,6 +316,61 @@ class WebDavClient implements CloudClient {
     }).whenComplete(() => cloudTraffic.finish(transfer));
   }
 
+  // Moves (or renames) a file or a whole collection. WebDAV performs the move
+  // server-side, so a folder and its thumbnail mirror stay in sync without
+  // downloading anything.
+  @override
+  Future<void> move(String fromUrl, String toUrl, {bool overwrite = false}) {
+    final sourceUrl = resolve(fromUrl);
+    final destinationUrl = resolve(toUrl);
+    final started = DateTime.now();
+    final transfer = cloudTraffic.begin('MOVE', sourceUrl.toString());
+    return _withRetry(() async {
+      final request = http.Request('MOVE', sourceUrl)
+        ..headers.addAll({
+          ...requestHeaders,
+          'Destination': destinationUrl.toString(),
+          'Overwrite': overwrite ? 'T' : 'F',
+        });
+      http.StreamedResponse response;
+      try {
+        response = await _client.send(request).timeout(_deleteTimeout);
+        await response.stream.drain<void>();
+      } on SocketException catch (e) {
+        throw _TransportError(e);
+      } on HandshakeException catch (e) {
+        throw _TransportError(e);
+      } on HttpException catch (e) {
+        throw _TransportError(e);
+      } on http.ClientException catch (e) {
+        throw _TransportError(e);
+      } on TimeoutException catch (e) {
+        throw _TransportError(e, statusCode: 408);
+      }
+      final status = response.statusCode;
+      _log('MOVE', sourceUrl.toString(), status: status, elapsed: DateTime.now().difference(started));
+      if (status >= 200 && status < 300) return;
+      if (status == 404) {
+        throw const CloudException('要移动的文件不存在', statusCode: 404);
+      }
+      if (status == 412) {
+        throw const CloudException('目标位置已存在同名文件', statusCode: 412);
+      }
+      // a transient server failure is worth the retry the wrapper provides
+      if (status == 429 || (status >= 500 && status <= 504)) {
+        throw _TransportError(
+          HttpException('server error $status', uri: sourceUrl),
+          statusCode: status,
+          retryAfter: _retryAfterOf(response),
+        );
+      }
+      throw CloudException('移动失败', statusCode: status);
+    }).catchError((Object error) {
+      _log('MOVE', sourceUrl.toString(), elapsed: DateTime.now().difference(started), error: error);
+      throw error;
+    }).whenComplete(() => cloudTraffic.finish(transfer));
+  }
+
   // uploads a whole file, used by the shared video thumbnail cache. A missing
   // parent collection is reported to the caller (404/409), which can create it
   // with `makeDirectory` and retry.

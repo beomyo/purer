@@ -55,11 +55,10 @@ String cloudErrorText(Object error) {
   return '$error';
 }
 
-// common contract implemented by every remote service backend (WebDAV, SMB, ...)
+// common contract implemented by every remote service backend (WebDAV)
 abstract class CloudClient {
   // headers a consumer must send to fetch a resource directly from this
-  // backend (e.g. WebDAV Basic auth). Empty when the backend needs none,
-  // which is the case for SMB since it is served through the loopback bridge.
+  // backend (e.g. WebDAV Basic auth)
   Map<String, String> get requestHeaders;
 
   // lists the entries of a folder
@@ -71,6 +70,10 @@ abstract class CloudClient {
 
   // deletes a file, or a folder and everything it contains
   Future<void> delete(String url);
+
+  // moves a file, or a folder and everything it contains. A rename is a move
+  // inside the same parent.
+  Future<void> move(String fromUrl, String toUrl, {bool overwrite = false});
 
   // verifies that the server can be reached and browsed
   Future<void> testConnection();

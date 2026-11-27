@@ -22,7 +22,7 @@ import 'package:provider/provider.dart';
 const appTitle = 'Purer';
 
 // Root of the cloud-only app: there is no local media library, so the app opens
-// directly on the list of WebDAV / SMB services.
+// directly on the list of WebDAV services.
 class CloudApp extends StatefulWidget {
   const new({super.key});
 

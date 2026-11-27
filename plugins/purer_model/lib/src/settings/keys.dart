@@ -165,7 +165,7 @@ class SettingKeys {
   // bin
   static const enableBinKey = 'enable_bin';
 
-  // cloud services (WebDAV / SMB)
+  // cloud services (WebDAV)
   static const cloudServersKey = 'cloud_servers';
   static const cloudColumnsKey = 'cloud_columns';
   static const cloudImageLayoutKey = 'cloud_image_layout';

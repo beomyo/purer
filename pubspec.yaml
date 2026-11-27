@@ -1,11 +1,11 @@
 name: purer
-description: 仅保留 WebDAV / SMB 云服务浏览的 Android 相册应用。
+description: 仅保留 WebDAV 云服务浏览的 Android 相册应用。
 publish_to: none
 
 # version bump checklist:
 # - increase app version: /pubspec.yaml
 # - edit changelog:       /CHANGELOG.md
-version: 1.2.0+33
+version: 1.2.1+34
 
 environment:
   # this project bundles Flutter SDK via `flutter_wrapper`
@@ -70,7 +70,6 @@ dependencies:
       ref: 71643a4c2ce9b8f8fbd4645cb479a0ee0fe3d2c3
   provider:
   shared_preferences:
-  smb_connect: ^0.0.9
   stack_trace:
   streams_channel:
     path: plugins/streams_channel
