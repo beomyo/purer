@@ -1091,13 +1091,22 @@ def scrape(
 
     tracker = TaskTracker(board, summary_line)
 
-    def wait_video_pause(last_submit: float) -> None:
-        """限制新视频的启动频率，避免快速路径把「打开新文件」的速度提得过高。"""
+    # 新视频起播节奏：等待发生在工作线程里，主线程仍能及时处理已完成的任务、
+    # 刷新进度和平均用时（之前放在提交循环里会让进度停住）。
+    pace_lock = threading.Lock()
+    next_video_at = 0.0
+
+    def pace_video_start() -> None:
+        nonlocal next_video_at
         if video_pause <= 0:
             return
-        remaining = video_pause - (time.monotonic() - last_submit)
-        if remaining > 0:
-            runtime.cancel_event.wait(remaining)
+        with pace_lock:
+            now = time.monotonic()
+            start = max(now, next_video_at)
+            next_video_at = start + video_pause
+        delay = start - now
+        if delay > 0:
+            runtime.cancel_event.wait(delay)
 
     def show_status(folder_url: str, done: int, total: int) -> None:
         with state_lock:
@@ -1315,6 +1324,7 @@ def scrape(
             started_at: dict[str, float] = {}
 
             def handle(video: Resource) -> tuple[str, float | None]:
+                pace_video_start()
                 started_at[video.url] = time.monotonic()
                 task = tracker.new_task(video.name)
                 try:
@@ -1380,12 +1390,9 @@ def scrape(
             futures: dict = {}
             completed = False
             try:
-                last_submit = 0.0
                 for video in todo:
-                    wait_video_pause(last_submit)
                     if runtime.cancel_event.is_set():
                         break
-                    last_submit = time.monotonic()
                     futures[executor.submit(handle, video)] = video
                 for future in as_completed(futures):
                     video = futures[future]
