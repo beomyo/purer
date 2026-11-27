@@ -126,7 +126,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--no-sprite-window", action="store_true",
         help=(
-            "关闭雪碧图的 TS/M2TS 窗口快速路径：默认按码率只读每帧附近的窗口后本地抽帧；"
+            "关闭雪碧图的 TS/M2TS/AVI 数据窗口快速路径：默认只读每帧附近的窗口后本地抽帧；"
             "关闭后恢复逐帧远程顺序读取（非常慢）"
         ),
     )

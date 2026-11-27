@@ -57,13 +57,21 @@ def find_tool(name: str, explicit: str | None) -> str:
     )
 
 
+def _is_local_url(url: str) -> bool:
+    from urllib import parse
+
+    host = (parse.urlsplit(url).hostname or "").lower()
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
 def _ffmpeg_net_args(url: str, token: str | None, insecure: bool) -> list[str]:
     if not url.lower().startswith(("http://", "https://")):
         return []
     args: list[str] = ["-user_agent", USER_AGENT, "-rw_timeout", "120000000"]
     if insecure and url.lower().startswith("https://"):
         args += ["-tls_verify", "0"]
-    if runtime.ffmpeg_proxy:
+    # 本地 Range 缓存代理是 127.0.0.1，不能再去走外部代理
+    if runtime.ffmpeg_proxy and not _is_local_url(url):
         args += ["-http_proxy", runtime.ffmpeg_proxy]
     if token:
         args += ["-headers", f"Authorization: Basic {token}\r\n"]

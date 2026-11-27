@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = "1.12.2"
+VERSION = "1.13.0"
 USER_AGENT = f"PurerDesktopScraper/{VERSION}"
 
 # ---- 失败标记（与 App 的 CloudMediaCache / CloudThumbnailScraper 一致） ----
@@ -111,6 +111,14 @@ SPRITE_TS_WINDOW_MAX = 32 * 1024 * 1024      # 窗口上限（重试时最多再
 SPRITE_TS_WORKERS = 2                        # 同一文件的并发窗口读取数
 SPRITE_TS_ATTEMPTS = 3                       # 每个窗口的读取尝试次数
 SPRITE_TS_DECODE_TIMEOUT = 60.0              # 单个窗口本地解码的超时
+# ---- 雪碧图 AVI(DV) 快速路径 ----
+# DV AVI 的帧是定长的（NTSC 120000 / PAL 144000 字节），按字节窗口找到 00db 块
+# 后直接本地解码；CUVC 等 ffmpeg 没有解码器的编码则快速失败，不再远程卡死。
+SPRITE_AVI_WINDOW_BYTES = 1024 * 1024        # 每个时间点读取的窗口
+SPRITE_AVI_WORKERS = 2                       # 本地解码并发（上游读取仍由全局上限串行）
+SPRITE_AVI_DECODE_TIMEOUT = 60.0             # 单帧本地解码超时
+SPRITE_AVI_MIN_CHUNK = 64 * 1024             # 合理的 DV 帧大小范围
+SPRITE_AVI_MAX_CHUNK = 600 * 1024
 CONFIG_VERSION = 2          # 旧配置没有版本号，用来迁移过时的默认并发
 
 PROPFIND_BODY = (

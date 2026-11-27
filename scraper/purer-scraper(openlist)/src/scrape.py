@@ -12,6 +12,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 from . import durations, runtime
+from .aviwindow import (
+    AviCodecUnsupported,
+    AviWindowUnavailable,
+    extract_dv_frames,
+    prepare_avi_info,
+)
 from .cache import (
     cache_listing_with_retry,
     cleanup_stale_sprites,
@@ -59,6 +65,7 @@ from .constants import (
 from .errors import VideoError, VideoSkipped, failure_label
 from .failure_report import collect_failure_details, log_failure_details
 from .ffmpeg import extract_frame, probe_duration
+from .httpcache import start_cache_proxy
 from .mp4sprite import SpriteIndexUnavailable, prepare_sprite_index
 from .mp4window import extract_frame_window
 from .tswindow import TsWindowUnavailable, extract_ts_frames, prepare_ts_window
@@ -711,6 +718,27 @@ def scrape_one_sprite(
                 raise
             ts_packet = None
 
+    # ---- AVI：读 256KB 头部判断编码（DV 可走快速路径，CUVC 直接失败） ----
+    avi_info = None
+    avi_codec_error: AviCodecUnsupported | None = None
+    if (
+        sprite_window
+        and source_client is not None
+        and bool(video.size)
+        and avi
+        and not hls
+    ):
+        try:
+            avi_info = prepare_avi_info(source_client, video.url, video.size)
+        except AviCodecUnsupported as exc:
+            avi_codec_error = exc
+        except AviWindowUnavailable:
+            avi_info = None
+        except VideoError:
+            if runtime.cancel_event.is_set():
+                raise
+            avi_info = None
+
     # ---- 优先：MP4 索引快速路径（读一次索引，只取各帧所需的字节） ----
     index_error: str | None = None
     index_ready = (
@@ -833,55 +861,106 @@ def scrape_one_sprite(
             log(f"  {video.name}：TS 窗口快速路径不可用（{ts_error}），改用远程抽帧")
             frames = None
 
+    if frames is None and avi_codec_error is not None:
+        # ffmpeg 没有对应解码器：快速失败，别再去远程按 75 秒卡死
+        raise VideoError(
+            "noframe",
+            str(avi_codec_error),
+            retryable=False,
+            phase="探测格式",
+            context={"url": video.url},
+        )
+    if frames is None and avi_info is not None and source_client is not None and video.size:
+        avi_error: str | None = None
+        try:
+            log(f"  {video.name}：AVI(DV) 快速路径（{avi_info.chunk_id.decode('ascii', 'replace')} 定长帧）")
+            frames = extract_dv_frames(
+                ffmpeg,
+                source_client,
+                video.url,
+                video.size,
+                duration,
+                count,
+                cell_width,
+                avi_info,
+                folder,
+                limiter,
+                extract_timeout=extract_timeout,
+                task=task,
+            )
+        except AviWindowUnavailable as exc:
+            avi_error = str(exc)
+        except VideoError as exc:
+            if runtime.cancel_event.is_set():
+                raise
+            avi_error = str(exc)
+        if avi_error is not None:
+            log(f"  {video.name}：AVI(DV) 快速路径不可用（{avi_error}），改用远程抽帧")
+            frames = None
+
     if frames is None:
         positions = sprite_positions(duration, count)
         log(
             f"  {video.name}：时长 {duration:.0f}s · 在 10%–95% 区间每 {interval:.1f}s 取一帧 · "
             f"单格上限 {cell_width}px"
         )
+        remote_url = video.url
+        frame_proxy = None
+        if sprite_window and source_client is not None and video.size:
+            try:
+                frame_proxy = start_cache_proxy(source_client, video.url, video.size)
+                remote_url = frame_proxy.url
+                log(f"  {video.name}：使用本地 Range 缓存代理（重复索引读取不再请求上游）")
+            except Exception as exc:  # noqa: BLE001
+                log(f"  {video.name}：本地缓存代理启动失败（{exc}），直接远程抽帧")
+                frame_proxy = None
         frames = []
         if task is not None:
             task.set_phase("取帧", steps=count)
-        for index, position in enumerate(positions, 1):
-            if runtime.cancel_event.is_set():
-                raise VideoError("timeout", "已取消", phase="取帧")
-            if task is not None:
-                task.advance(index, count)
+        try:
+            for index, position in enumerate(positions, 1):
+                if runtime.cancel_event.is_set():
+                    raise VideoError("timeout", "已取消", phase="取帧")
+                if task is not None:
+                    task.advance(index, count)
 
-            def grab(position: float = position, index: int = index) -> bytes:
-                limiter.wait(folder)
-                return extract_frame(
-                    ffmpeg,
-                    cache_bust(video.url),
-                    position,
-                    cell_width,
-                    token,
-                    insecure,
-                    timeout=extract_timeout,
-                    seek_modes=(True,),
-                    label=f"{video.name} 第 {index}/{count} 帧",
-                    stall_timeout=stall_timeout,
-                    task=task,
-                )
+                def grab(position: float = position, index: int = index) -> bytes:
+                    limiter.wait(folder)
+                    return extract_frame(
+                        ffmpeg,
+                        cache_bust(remote_url),
+                        position,
+                        cell_width,
+                        token,
+                        insecure,
+                        timeout=extract_timeout,
+                        seek_modes=(True,),
+                        label=f"{video.name} 第 {index}/{count} 帧",
+                        stall_timeout=stall_timeout,
+                        task=task,
+                    )
 
-            try:
-                frames.append(retry(f"雪碧图 {video.name} 第 {index}/{count} 帧", retries, grab))
-            except VideoError as exc:
-                exc.context.setdefault("frame_index", index)
-                exc.context.setdefault("frame_count", count)
-                exc.context.setdefault("frame_position", round(position, 3))
-                # 卡死（不可重试）立即放弃整个雪碧图，不再为后面每一帧重复等超时
-                if exc.reason in ("notfound", "auth", "noframe") or not exc.retryable:
-                    raise
-                wrapped = VideoError(
-                    exc.reason,
-                    f"第 {index}/{count} 帧取帧失败（{exc}）",
-                    retryable=exc.retryable,
-                    phase=f"取帧 {index}/{count}",
-                    context=exc.context,
-                )
-                wrapped.attempts = exc.attempts
-                raise wrapped from exc
+                try:
+                    frames.append(retry(f"雪碧图 {video.name} 第 {index}/{count} 帧", retries, grab))
+                except VideoError as exc:
+                    exc.context.setdefault("frame_index", index)
+                    exc.context.setdefault("frame_count", count)
+                    exc.context.setdefault("frame_position", round(position, 3))
+                    # 卡死（不可重试）立即放弃整个雪碧图，不再为后面每一帧重复等超时
+                    if exc.reason in ("notfound", "auth", "noframe") or not exc.retryable:
+                        raise
+                    wrapped = VideoError(
+                        exc.reason,
+                        f"第 {index}/{count} 帧取帧失败（{exc}）",
+                        retryable=exc.retryable,
+                        phase=f"取帧 {index}/{count}",
+                        context=exc.context,
+                    )
+                    wrapped.attempts = exc.attempts
+                    raise wrapped from exc
+        finally:
+            if frame_proxy is not None:
+                frame_proxy.close()
     else:
         log(
             f"  {video.name}：时长 {duration:.0f}s · 本地数据窗口已取到 {len(frames)} 帧"
@@ -1027,7 +1106,7 @@ def scrape(
                 )
             if sprite_window:
                 log(
-                    "TS/M2TS 视频按码率取每帧附近的数据窗口，本地抽帧"
+                    "TS/M2TS 按码率取数据窗口、AVI(DV) 按定长帧直接读取，本地抽帧"
                     "（--no-sprite-window 可关闭）"
                 )
             if sprite_min_duration > 0:
