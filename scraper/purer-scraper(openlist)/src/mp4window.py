@@ -248,6 +248,33 @@ def _mark_sparse(file_obj) -> None:
         pass
 
 
+def read_range_retry(
+    client: WebDav,
+    url: str,
+    start: int,
+    length: int,
+    timeout: float = 30,
+    budget: float = 120,
+    attempts: int = 3,
+) -> bytes:
+    """读一段字节；5XX/403 等瞬时错误退避重试，避免一次抖动就退回慢路径。"""
+    from . import runtime
+
+    last: Exception | None = None
+    for attempt in range(max(1, attempts)):
+        if runtime.cancel_event.is_set():
+            raise VideoError("timeout", "已取消")
+        try:
+            return _read_range(client, url, start, length, timeout=timeout, budget=budget)
+        except VideoError as exc:
+            last = exc
+            if runtime.cancel_event.is_set():
+                raise
+            time.sleep(0.5 * (attempt + 1))
+    assert last is not None
+    raise last
+
+
 def _read_range(
     client: WebDav,
     url: str,

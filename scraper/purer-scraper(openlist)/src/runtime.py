@@ -17,6 +17,9 @@ if TYPE_CHECKING:  # 仅用于类型标注，避免运行时循环导入
 # 终端输出与日志文件共用这把锁，防止多线程输出互相覆盖
 log_lock = threading.Lock()
 log_path: Path | None = None
+# 成功/失败分类日志（与主日志同目录，由 CLI 根据 --log-file 推导）
+success_log_path: Path | None = None
+failure_log_path: Path | None = None
 run_summary: str | None = None
 failure_store: "FailureStore | None" = None
 # ffmpeg 的协议代理；由 --proxy 设置。默认不走系统代理，与手机端一致。

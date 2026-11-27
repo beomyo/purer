@@ -10,7 +10,20 @@ from pathlib import Path
 from . import runtime
 from .browse import browse_folder
 from .cache import shorten
-from .console import bold, cyan, dim, green, hr, log, log_line, red, setup_console, yellow
+from .console import (
+    bold,
+    cyan,
+    dim,
+    green,
+    hr,
+    log,
+    log_failure,
+    log_line,
+    log_success,
+    red,
+    setup_console,
+    yellow,
+)
 from .constants import (
     CONFIG_VERSION,
     DEFAULT_JOBS,
@@ -28,6 +41,7 @@ from .constants import (
     MIN_SPRITE_CELL,
     PROBE_TIMEOUT,
     SPRITE_INDEX_ENABLED,
+    SPRITE_TS_WINDOW_ENABLED,
     STALL_TIMEOUT,
     VERSION,
     WINDOW_BYTES,
@@ -110,6 +124,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--no-sprite-window", action="store_true",
+        help=(
+            "关闭雪碧图的 TS/M2TS 窗口快速路径：默认按码率只读每帧附近的窗口后本地抽帧；"
+            "关闭后恢复逐帧远程顺序读取（非常慢）"
+        ),
+    )
+    parser.add_argument(
         "--no-sprite-index", action="store_true",
         help=(
             "关闭雪碧图的 MP4 索引快速路径：默认只读一次索引，按样本表取每帧所需字节后"
@@ -168,14 +189,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     setup_console()
     args = parse_args(argv)
-    runtime.log_path = None if args.no_log else Path(args.log_file)
+    if args.no_log:
+        runtime.log_path = None
+        runtime.success_log_path = None
+        runtime.failure_log_path = None
+    else:
+        runtime.log_path = Path(args.log_file)
+        suffix = runtime.log_path.suffix or ".log"
+        stem = runtime.log_path.name[: -len(suffix)] if runtime.log_path.suffix else runtime.log_path.name
+        runtime.success_log_path = runtime.log_path.with_name(f"{stem}_success{suffix}")
+        runtime.failure_log_path = runtime.log_path.with_name(f"{stem}_failure{suffix}")
     runtime.ffmpeg_proxy = args.proxy
     runtime.cancel_event.clear()
     runtime.run_summary = None
     runtime.board = None
     runtime.failure_store = FailureStore(DEFAULT_FAILED)
     if runtime.log_path is not None:
-        log_line(f"===== 运行开始 {time.strftime('%Y-%m-%d %H:%M:%S')} · v{VERSION} =====")
+        started = f"===== 运行开始 {time.strftime('%Y-%m-%d %H:%M:%S')} · v{VERSION} ====="
+        log_line(started)
+        log_success(started)
+        log_failure(started)
 
     config_path = Path(args.config)
     config = load_config(config_path)
@@ -345,6 +378,10 @@ def main(argv: list[str] | None = None) -> int:
     sprite_index = (not args.no_sprite_index) and (
         stored_index if isinstance(stored_index, bool) else SPRITE_INDEX_ENABLED
     )
+    stored_window = config.get("sprite_window", SPRITE_TS_WINDOW_ENABLED)
+    sprite_window = (not args.no_sprite_window) and (
+        stored_window if isinstance(stored_window, bool) else SPRITE_TS_WINDOW_ENABLED
+    )
 
     cache_folder = args.cache_folder or config_text(config, "cache_folder")
 
@@ -366,6 +403,7 @@ def main(argv: list[str] | None = None) -> int:
         config["sprite_width"] = sprite_width
         config["sprite_min_duration"] = sprite_min_duration
         config["sprite_index"] = sprite_index
+        config["sprite_window"] = sprite_window
         save_config(config_path, config)
         markers = collect_all_failures(cache_client, cache_folder, source_base)
         if not markers:
@@ -398,6 +436,7 @@ def main(argv: list[str] | None = None) -> int:
             sprite_width=sprite_width,
             sprite_min_duration=sprite_min_duration,
             sprite_index=sprite_index,
+            sprite_window=sprite_window,
         )
         if args.dry_run:
             interactive_retry(ctx, markers, limit=args.limit, list_only=True)
@@ -504,6 +543,7 @@ def main(argv: list[str] | None = None) -> int:
             "sprite_width": sprite_width,
             "sprite_min_duration": sprite_min_duration,
             "sprite_index": sprite_index,
+            "sprite_window": sprite_window,
             "probe_timeout": probe_timeout,
             "extract_timeout": extract_timeout,
             "stall_timeout": stall_timeout,
@@ -541,6 +581,7 @@ def main(argv: list[str] | None = None) -> int:
             sprite_width=sprite_width,
             sprite_min_duration=sprite_min_duration,
             sprite_index=sprite_index,
+            sprite_window=sprite_window,
         )
     except KeyboardInterrupt:
         runtime.cancel_running()
@@ -625,9 +666,15 @@ def main(argv: list[str] | None = None) -> int:
                     sprite_width=sprite_width,
                     sprite_min_duration=sprite_min_duration,
                     sprite_index=sprite_index,
+                    sprite_window=sprite_window,
                 )
                 interactive_retry(ctx, collect_all_failures(cache_client, cache_folder, source_base))
-    print(f"日志：{runtime.log_path}" if runtime.log_path else "日志：未写入文件")
+    if runtime.log_path:
+        print(f"日志：{runtime.log_path}")
+        print(f"      成功：{runtime.success_log_path}")
+        print(f"      失败：{runtime.failure_log_path}")
+    else:
+        print("日志：未写入文件")
     return 0 if stats.failed == 0 else 1
 
 

@@ -38,8 +38,10 @@ from .constants import (
 )
 from .errors import VideoError
 from .ffmpeg import extract_frame
+from . import upstream
 from .mp4window import (
     _mark_sparse,
+    read_range_retry,
     _mp4_chunk_offsets,
     _mp4_find,
     _mp4_sample_at,
@@ -194,14 +196,15 @@ class SpriteIndex:
                     raise VideoError("timeout", "已取消", phase="取数据段")
                 limiter.wait(folder)
                 try:
-                    data = _read_range(
-                        client,
-                        url,
-                        start,
-                        length,
-                        timeout=30,
-                        budget=max(90.0, length / 1048576 * 30.0),
-                    )
+                    with upstream.UPSTREAM_LIMIT:
+                        data = _read_range(
+                            client,
+                            url,
+                            start,
+                            length,
+                            timeout=30,
+                            budget=max(90.0, length / 1048576 * 30.0),
+                        )
                     if len(data) != length:
                         raise VideoError(
                             "timeout",
@@ -499,7 +502,8 @@ def prepare_sprite_index(
         task.set_phase("读索引")
 
     head_length = min(SPRITE_INDEX_HEAD_BYTES, file_size)
-    head = _read_range(client, url, 0, head_length, timeout=30, budget=60)
+    with upstream.UPSTREAM_LIMIT:
+        head = read_range_retry(client, url, 0, head_length, timeout=30, budget=60)
     if not _looks_like_mp4(head):
         raise SpriteIndexUnavailable("文件头不是 MP4")
 
@@ -513,10 +517,11 @@ def prepare_sprite_index(
             moov = (box_start + 8, box_start + box_size)
         else:
             # faststart 文件：moov 在头部，但比 64KB 大，按大小精确补读
-            buffer = _read_range(
-                client, url, box_start, box_size, timeout=30,
-                budget=max(90.0, box_size / 1048576 * 30.0),
-            )
+            with upstream.UPSTREAM_LIMIT:
+                buffer = read_range_retry(
+                    client, url, box_start, box_size, timeout=30,
+                    budget=max(90.0, box_size / 1048576 * 30.0),
+                )
             buffer_offset = box_start
             moov = (8, box_size)
         tables = _parse_tables(buffer, moov)
@@ -531,7 +536,8 @@ def prepare_sprite_index(
 
     # mdat 在前：moov 在文件尾部
     tail_length = min(SPRITE_INDEX_TAIL_BYTES, file_size)
-    tail = _read_range(client, url, file_size - tail_length, tail_length, timeout=30, budget=120)
+    with upstream.UPSTREAM_LIMIT:
+        tail = read_range_retry(client, url, file_size - tail_length, tail_length, timeout=30, budget=120)
     candidate = _find_tail_moov(tail)
     if candidate is None:
         raise SpriteIndexUnavailable("文件尾部没有找到 moov")
@@ -539,7 +545,8 @@ def prepare_sprite_index(
     if box_start + box_size > len(tail):
         # moov 比默认尾缓冲区还大：按 moov 的大小补读一次
         want = min(box_size + _TAIL_SLACK, file_size)
-        tail = _read_range(client, url, file_size - want, want, timeout=30, budget=180)
+        with upstream.UPSTREAM_LIMIT:
+            tail = read_range_retry(client, url, file_size - want, want, timeout=30, budget=180)
         candidate = _find_tail_moov(tail)
         if candidate is None:
             raise SpriteIndexUnavailable("补读后仍然找不到 moov")

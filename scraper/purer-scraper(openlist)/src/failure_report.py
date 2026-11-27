@@ -205,4 +205,5 @@ def log_failure_details(details: dict) -> None:
     if hint:
         lines.append(f"  提示：{hint}")
     lines.append("  " + "─" * 62)
-    log("\n".join(lines))
+    # 失败详情同时写进主日志和 scraper_failure.log
+    log("\n".join(lines), category="failure")

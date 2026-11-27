@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = "1.11.0"
+VERSION = "1.12.0"
 USER_AGENT = f"PurerDesktopScraper/{VERSION}"
 
 # ---- 失败标记（与 App 的 CloudMediaCache / CloudThumbnailScraper 一致） ----
@@ -101,6 +101,16 @@ SPRITE_INDEX_ATTEMPTS = 3                    # 每段数据的读取尝试次数
 # 只取到目标帧本身会少一帧（B 帧重排后更明显），本地抽帧就会失败。
 SPRITE_INDEX_MARGIN = 1.5                    # 单位：秒
 SPRITE_INDEX_MAX_SKIP = 5.0                  # 本地抽帧结果比目标晚这么多秒就判定失效
+# ---- 雪碧图 TS/M2TS 窗口快速路径 ----
+# TS 没有索引，远程 -ss 只能顺序读。改为按码率估算字节位置，每个时间点只读
+# 一个覆盖约 5 秒的窗口，本地解出第一个关键帧。位置可能早几秒，对雪碧图无影响。
+SPRITE_TS_WINDOW_ENABLED = True
+SPRITE_TS_WINDOW_SECONDS = 5.0               # 每个窗口覆盖的时长（按码率换算字节）
+SPRITE_TS_WINDOW_MIN = 8 * 1024 * 1024       # 窗口下限
+SPRITE_TS_WINDOW_MAX = 32 * 1024 * 1024      # 窗口上限（重试时最多再翻一倍）
+SPRITE_TS_WORKERS = 2                        # 同一文件的并发窗口读取数
+SPRITE_TS_ATTEMPTS = 3                       # 每个窗口的读取尝试次数
+SPRITE_TS_DECODE_TIMEOUT = 60.0              # 单个窗口本地解码的超时
 CONFIG_VERSION = 2          # 旧配置没有版本号，用来迁移过时的默认并发
 
 PROPFIND_BODY = (

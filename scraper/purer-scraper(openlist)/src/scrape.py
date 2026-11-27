@@ -33,6 +33,8 @@ from .console import (
     dim,
     green,
     log,
+    log_failure,
+    log_success,
     progress_bar,
     red,
 )
@@ -59,6 +61,7 @@ from .failure_report import collect_failure_details, log_failure_details
 from .ffmpeg import extract_frame, probe_duration
 from .mp4sprite import SpriteIndexUnavailable, prepare_sprite_index
 from .mp4window import extract_frame_window
+from .tswindow import TsWindowUnavailable, extract_ts_frames, prepare_ts_window
 from .paths import DEFAULT_FAILED
 from .progress import TaskProgress, TaskTracker
 from .rate import RateLimiter
@@ -647,6 +650,7 @@ def scrape_one_sprite(
     stall_timeout: float = STALL_TIMEOUT,
     min_duration: float = DEFAULT_SPRITE_MIN_DURATION,
     sprite_index: bool = True,
+    sprite_window: bool = True,
     task: TaskProgress | None = None,
 ) -> tuple[str, float | None]:
     """生成雪碧图并上传，返回缓存文件名与时长。
@@ -678,10 +682,27 @@ def scrape_one_sprite(
     duration: float | None = None
     frames: list[bytes] | None = None
 
+    # ---- TS/M2TS：先花 4KB 判断是不是 TS，是的话跳过 MP4 索引 ----
+    ts_packet: int | None = None
+    if (
+        sprite_window
+        and source_client is not None
+        and bool(video.size)
+        and not avi
+        and not hls
+    ):
+        try:
+            ts_packet = prepare_ts_window(source_client, video.url, video.size)
+        except VideoError:
+            if runtime.cancel_event.is_set():
+                raise
+            ts_packet = None
+
     # ---- 优先：MP4 索引快速路径（读一次索引，只取各帧所需的字节） ----
     index_error: str | None = None
     index_ready = (
         sprite_index
+        and ts_packet is None
         and source_client is not None
         and bool(video.size)
         and not avi
@@ -771,6 +792,34 @@ def scrape_one_sprite(
         )
 
     interval = duration * (SPRITE_END - SPRITE_START) / max(1, count - 1)
+    if frames is None and ts_packet is not None and source_client is not None and video.size:
+        ts_error: str | None = None
+        try:
+            log(f"  {video.name}：TS 窗口快速路径（包长 {ts_packet} 字节）")
+            frames = extract_ts_frames(
+                ffmpeg,
+                source_client,
+                video.url,
+                video.size,
+                duration,
+                count,
+                cell_width,
+                ts_packet,
+                folder,
+                limiter,
+                extract_timeout=extract_timeout,
+                task=task,
+            )
+        except TsWindowUnavailable as exc:
+            ts_error = str(exc)
+        except VideoError as exc:
+            if runtime.cancel_event.is_set():
+                raise
+            ts_error = str(exc)
+        if ts_error is not None:
+            log(f"  {video.name}：TS 窗口快速路径不可用（{ts_error}），改用远程抽帧")
+            frames = None
+
     if frames is None:
         positions = sprite_positions(duration, count)
         log(
@@ -822,7 +871,7 @@ def scrape_one_sprite(
                 raise wrapped from exc
     else:
         log(
-            f"  {video.name}：时长 {duration:.0f}s · 索引快速路径已取到 {len(frames)} 帧"
+            f"  {video.name}：时长 {duration:.0f}s · 本地数据窗口已取到 {len(frames)} 帧"
             f"（每 {interval:.1f}s 一帧）"
         )
 
@@ -888,6 +937,7 @@ def scrape(
     sprite_width: int = DEFAULT_SPRITE_WIDTH,
     sprite_min_duration: float = DEFAULT_SPRITE_MIN_DURATION,
     sprite_index: bool = True,
+    sprite_window: bool = True,
 ) -> Stats:
     runtime.cancel_event.clear()
     stats = Stats(started_at=time.monotonic())
@@ -949,6 +999,11 @@ def scrape(
                 log(
                     "MP4 视频会先读一次索引，只取每帧所需数据后在本地抽帧"
                     "（--no-sprite-index 可关闭）"
+                )
+            if sprite_window:
+                log(
+                    "TS/M2TS 视频按码率取每帧附近的数据窗口，本地抽帧"
+                    "（--no-sprite-window 可关闭）"
                 )
             if sprite_min_duration > 0:
                 log(
@@ -1157,6 +1212,7 @@ def scrape(
                         stall_timeout=stall_timeout,
                         min_duration=sprite_min_duration,
                         sprite_index=sprite_index,
+                        sprite_window=sprite_window,
                         task=task,
                     )
                 return scrape_one(
@@ -1203,6 +1259,10 @@ def scrape(
                             f"  {green('✓')} [{done_count}/{len(todo)}] {filename}{suffix}"
                             f" · 用时 {elapsed:.1f}s"
                         )
+                        log_success(
+                            f"[{done_count}/{len(todo)}] {filename}{suffix} · 用时 {elapsed:.1f}s"
+                            f" · {display_url(folder)} · {video.url}"
+                        )
                         # 另一个设备可能刚写过标记：成功后把它清掉。
                         # 雪碧图模式不动缩略图的失败状态。
                         if mode != "sprite":
@@ -1246,6 +1306,11 @@ def scrape(
                                 f"{failure_label(reason)}（{exc}）· 未写失败标记，下次会重新尝试"
                                 f" · 用时 {elapsed:.1f}s"
                             )
+                            log_failure(
+                                f"[{done_count}/{len(todo)}] {video.name} · "
+                                f"{failure_label(reason)}（{reason}）· 用时 {elapsed:.1f}s"
+                                f" · {display_url(folder)} · {video.url}"
+                            )
                             log_failure_details(details)
                             continue
                         if store is not None:
@@ -1284,6 +1349,11 @@ def scrape(
                             f"  {red('✗')} [{done_count}/{len(todo)}] {video.name}："
                             f"{failure_label(reason)}（{exc}）· {note} · 用时 {elapsed:.1f}s"
                         )
+                        log_failure(
+                            f"[{done_count}/{len(todo)}] {video.name} · "
+                            f"{failure_label(reason)}（{reason}）· 用时 {elapsed:.1f}s"
+                            f" · {display_url(folder)} · {video.url}"
+                        )
                         log_failure_details(details)
                     except Exception as exc:  # noqa: BLE001
                         stats.add_failure(video.url, str(exc))
@@ -1300,6 +1370,11 @@ def scrape(
                             log(
                                 f"  {red('✗')} [{done_count}/{len(todo)}] {video.name}：{exc}"
                                 f" · 未写失败标记，下次会重新尝试 · 用时 {elapsed:.1f}s"
+                            )
+                            log_failure(
+                                f"[{done_count}/{len(todo)}] {video.name} · 未知错误"
+                                f"（{exc}）· 用时 {elapsed:.1f}s"
+                                f" · {display_url(folder)} · {video.url}"
                             )
                             log_failure_details(details)
                             continue
@@ -1320,6 +1395,11 @@ def scrape(
                         log(
                             f"  {red('✗')} [{done_count}/{len(todo)}] {video.name}：{exc}{note}"
                             f" · 用时 {elapsed:.1f}s"
+                        )
+                        log_failure(
+                            f"[{done_count}/{len(todo)}] {video.name} · 未知错误"
+                            f"（{exc}）· 用时 {elapsed:.1f}s"
+                            f" · {display_url(folder)} · {video.url}"
                         )
                         log_failure_details(details)
                 completed = True

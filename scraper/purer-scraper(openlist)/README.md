@@ -23,6 +23,8 @@
 - 只做远程抽帧，使用 HTTP Range 读取目标附近的数据；**不会下载/保存源文件，也不会从头解码整个视频**
 - 雪碧图优先走 **MP4 索引快速路径**：只读一次 moov，按样本表精确读取每帧所需的字节，
   再拼成稀疏本地文件抽帧（不支持时自动退回逐帧远程读取，见「雪碧图模式」）
+- 雪碧图对 **TS/M2TS** 走 **数据窗口快速路径**：按码率估算每帧位置，只读几秒的窗口后
+  本地解出关键帧（TS 没有索引，原来的 `-ss` 只能顺序读，几乎必超时）
 - 时长按「URL + 文件大小」缓存在 `duration_cache.json`；重跑时不再重复 ffprobe
 - 超大 AVI 自动从 1MB 文件头读取时长，并用 `-use_odml 0` 在靠前位置取帧；不会去读尾部索引或整文件
 - **支持 HLS（`.m3u8`）**：读取播放列表得到时长，只拉取目标时间点附近的分片，同样不下载整个视频
@@ -38,6 +40,8 @@ src/                   实现代码
   ffmpeg.py            ffmpeg/ffprobe 调用、抽帧、卡死检测
   mp4window.py         卡死兜底：局部窗口读取
   mp4sprite.py         雪碧图快速路径：MP4 索引 + 稀疏本地文件抽帧
+  tswindow.py          雪碧图快速路径：TS/M2TS 数据窗口 + 本地抽帧
+  upstream.py          全局上游并发上限（同一 115 账号最多 2 路 Range）
   durations.py         时长缓存（避免重复 ffprobe）
   webdav.py            WebDAV 客户端
   cache.py             缓存目录、缩略图与失败标记
@@ -47,7 +51,9 @@ src/                   实现代码
   console.py           终端颜色、进度区与日志
   ...（urls/errors/rate/retry/settings/constants/paths/runtime）
 scraper_config.json    配置（首次运行后生成，含明文密码）
-scraper.log            运行日志
+scraper.log            运行日志（完整）
+scraper_success.log    成功记录（每个生成的缩略图/雪碧图一行，含文件夹与源地址）
+scraper_failure.log    失败记录（失败摘要 + 完整失败详情）
 failed_videos.json     本地失败记录（含详细失败信息）
 duration_cache.json    视频时长缓存（按 URL + 文件大小，可随时删除）
 ```
@@ -99,7 +105,10 @@ python purer_scraper.py
 6. 失败视频会记录到 `failed_videos.json`，后续运行自动跳过；可运行 `python purer_scraper.py --retry-failed` 单独重试
 
 上次使用的地址和文件夹会保存在 `scraper_config.json`，下次直接回车沿用。
-运行日志写入同目录的 `scraper.log`（日志文件不包含终端颜色代码）；
+运行日志写入同目录的 `scraper.log`（日志文件不包含终端颜色代码）。成功和失败另外
+按分类写入 `scraper_success.log` / `scraper_failure.log`（文件名跟随 `--log-file`，
+例如 `--log-file /var/log/purer.log` 会得到 `purer_success.log` / `purer_failure.log`）；
+`--no-log` 时三个文件都不写。分类日志每次运行都会写一行「运行开始」分隔。
 失败视频同时记录到同目录的 `failed_videos.json`，普通运行据此跳过。
 每次运行会写入开始/结束分隔和结束汇总，便于区分多次运行。
 按 Ctrl+C 会取消排队中的视频并终止正在运行的 ffmpeg，不会等整个文件夹跑完。
@@ -169,9 +178,17 @@ https://host/dav/cache/media/movies/00.10.00_vid.mp4~5x5.jpg
   约 3 分钟降到约 30 秒（25 帧），下载量从约 330MB 降到约 65MB。
   索引不完整、fMP4/非 MP4、单段数据过大等情况会自动退回原来的逐帧远程读取，
   行为与旧版一致；也可以用 `--no-sprite-index` 强制关闭。
-- 快速路径同一文件的并发读取固定为 2 路（服务器超过 2 路会 403，遇到 403 会退避重试）；
-  本地抽帧 4 路并发。数据段会多取目标时间点之后约 1.5 秒，避免 ffmpeg 的 `-ss`
-  取「目标之后第一帧」时少一帧。
+- 快速路径同一文件的并发读取固定为 2 路，另外全进程还有 2 路全局上限（服务器超过
+  2 路会 403，遇到 403/5XX 会退避重试）；本地抽帧 4 路并发。MP4 数据段会多取目标
+  时间点之后约 1.5 秒，避免 ffmpeg 的 `-ss` 取「目标之后第一帧」时少一帧。
+- **TS/M2TS 窗口路径**：读 4KB 判断包长（188/192/204），按「文件大小 × 时间占比」
+  估算每个时间点的字节位置，向前后各取约 5 秒（8–32MB）的窗口（起点对齐包边界），
+  每个窗口本地用 `-skip_frame nokey` 解第一个关键帧。位置可能比目标时间早几秒，
+  对雪碧图没有影响。实测 6.9GB / 38 分钟的 m2ts 25 帧约 38 秒；原来这种文件基本
+  都会在 75 秒卡死后失败。`--no-sprite-window` 可关闭。
+- 如果 OpenList 返回 500，且日志里是 `waf_agent_protection_triggered` / `REQUEST_BLOCKED`，
+  说明 115 的 WAF 把自动请求拦截了（常见于请求量较大之后）。这不是抽帧代码的问题：
+  暂停一段时间、降低 `--rate` / `--jobs` 后再试即可。
 - 必须能读到视频时长（MP4 从索引读，其他格式用 ffprobe/缓存），读不到直接失败；
   服务器不支持 Range 时也不做雪碧图。
 - 切换到新格子后，新图上传成功会自动删除同视频的旧格子雪碧图；新图失败时旧图保留。
@@ -198,7 +215,7 @@ https://host/dav/cache/media/movies/00.10.00_vid.mp4~5x5.jpg
 
 ### 详细失败日志
 
-除了终端里的一行摘要，每次失败都会在 `scraper.log` 写入一块「失败详情」，包括：
+除了终端里的一行摘要，每次失败都会在 `scraper.log` 和 `scraper_failure.log` 写入一块「失败详情」，包括：
 
 - 视频名、源地址、文件大小、缓存目录、处理模式（缩略图/雪碧图）；
 - 失败阶段（读时长 / 抽帧 / 第几帧 / 局部窗口 / 上传）、目标时间点、是否可重试；
@@ -332,6 +349,7 @@ python purer_scraper.py --retry-failed
 | `--sprite-width 320` | 雪碧图单格最大边长（像素），默认 320；整张图上限 1MB |
 | `--sprite-min-duration 300` | 雪碧图只处理时长超过该秒数的视频（默认 300，也可写在配置 JSON；`0` 表示不限制；缩略图模式不限制） |
 | `--no-sprite-index` | 关闭雪碧图的 MP4 索引快速路径（默认开启：只读一次索引，按样本表取每帧所需字节后本地抽帧；关闭后恢复逐帧远程读取；也可在配置 JSON 写 `"sprite_index": false`） |
+| `--no-sprite-window` | 关闭雪碧图的 TS/M2TS 窗口快速路径（默认开启：按码率只读每帧附近的数据窗口后本地抽帧；关闭后恢复逐帧远程顺序读取，非常慢；也可在配置 JSON 写 `"sprite_window": false`） |
 | `--jobs 2` | 同时处理的视频数（1–4，默认 2；App 上限为 4；服务器较弱时可降到 1） |
 | `--retries 1` | 网络类失败的重试次数，默认 1；`0` 关闭（永久性失败始终不重试） |
 | `--retry-failed` | 只处理 `failed_videos.json` 和 App 失败标记中的视频；`--limit` 限制本次重试数 |

@@ -19,7 +19,7 @@ from .cache import (
     utc_stamp,
     write_failure_marker,
 )
-from .console import bold, dim, green, hr, log, red, yellow
+from .console import bold, dim, green, hr, log, log_failure, log_success, red, yellow
 from .constants import (
     DEFAULT_SPRITE_MIN_DURATION,
     DEFAULT_SPRITE_WIDTH,
@@ -345,6 +345,7 @@ class RetryContext:
     sprite_width: int = DEFAULT_SPRITE_WIDTH
     sprite_min_duration: float = DEFAULT_SPRITE_MIN_DURATION
     sprite_index: bool = True
+    sprite_window: bool = True
 
 
 def _select_markers(markers: list[FailedMarker], raw: str) -> list[FailedMarker]:
@@ -401,6 +402,7 @@ def _retry_one(ctx: RetryContext, marker: FailedMarker) -> bool:
                 stall_timeout=ctx.stall_timeout,
                 min_duration=ctx.sprite_min_duration,
                 sprite_index=ctx.sprite_index,
+                sprite_window=ctx.sprite_window,
             )
         else:
             filename, duration = scrape_one(
@@ -496,6 +498,10 @@ def _retry_one(ctx: RetryContext, marker: FailedMarker) -> bool:
             f"  {red('✗')} {marker.name}：{failure_label(reason)}（{exc}）"
             f" · 用时 {elapsed:.1f}s"
         )
+        log_failure(
+            f"[重试] {marker.name} · {failure_label(reason)}（{reason}）"
+            f" · 用时 {elapsed:.1f}s · {display_url(marker.folder)} · {marker.video_url}"
+        )
         log_failure_details(details)
         return False
 
@@ -510,7 +516,12 @@ def _retry_one(ctx: RetryContext, marker: FailedMarker) -> bool:
                 if exc.status != 404:
                     log(f"  删除失败标记失败 {old_name}：{exc}")
     suffix = "" if duration is None else f" · {duration:.0f}s"
-    log(f"  {green('✓')} {filename}{suffix} · 用时 {time.monotonic() - started:.1f}s")
+    elapsed = time.monotonic() - started
+    log(f"  {green('✓')} {filename}{suffix} · 用时 {elapsed:.1f}s")
+    log_success(
+        f"[重试] {filename}{suffix} · 用时 {elapsed:.1f}s"
+        f" · {display_url(marker.folder)} · {marker.video_url}"
+    )
     return True
 
 

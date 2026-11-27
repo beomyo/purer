@@ -155,7 +155,25 @@ class StatusBoard:
             self.lines = []
 
 
-def log(message: str) -> None:
+def _append_line(path, line: str) -> None:
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            # 日志文件不写 ANSI 颜色
+            fh.write(_ANSI_RE.sub("", line) + "\n")
+    except OSError:
+        pass
+
+
+def _category_path(category: str | None):
+    if category == "success":
+        return runtime.success_log_path
+    if category == "failure":
+        return runtime.failure_log_path
+    return None
+
+
+def log(message: str, category: str | None = None) -> None:
+    """打印到终端并写入主日志；category 为 success/failure 时再写一份分类日志。"""
     line = f"[{time.strftime('%H:%M:%S')}] {message}"
     with runtime.log_lock:
         board = runtime.board
@@ -165,12 +183,30 @@ def log(message: str) -> None:
         if board is not None:
             board._draw_locked()
         if runtime.log_path is not None:
-            try:
-                with open(runtime.log_path, "a", encoding="utf-8") as fh:
-                    # 日志文件不写 ANSI 颜色
-                    fh.write(_ANSI_RE.sub("", line) + "\n")
-            except OSError:
-                pass
+            _append_line(runtime.log_path, line)
+        extra = _category_path(category)
+        if extra is not None:
+            _append_line(extra, line)
+
+
+def log_success(message: str) -> None:
+    """只写成功分类日志（终端与主日志由调用方另行输出）。"""
+    path = runtime.success_log_path
+    if path is None:
+        return
+    line = f"[{time.strftime('%H:%M:%S')}] {message}"
+    with runtime.log_lock:
+        _append_line(path, line)
+
+
+def log_failure(message: str) -> None:
+    """只写失败分类日志（终端与主日志由调用方另行输出）。"""
+    path = runtime.failure_log_path
+    if path is None:
+        return
+    line = f"[{time.strftime('%H:%M:%S')}] {message}"
+    with runtime.log_lock:
+        _append_line(path, line)
 
 
 def log_line(message: str) -> None:
