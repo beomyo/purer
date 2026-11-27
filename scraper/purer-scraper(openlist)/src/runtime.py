@@ -20,6 +20,8 @@ log_path: Path | None = None
 # 成功/失败分类日志（与主日志同目录，由 CLI 根据 --log-file 推导）
 success_log_path: Path | None = None
 failure_log_path: Path | None = None
+# 短片（时长不超过雪碧图下限）记录，后续运行直接跳过
+short_log_path: Path | None = None
 run_summary: str | None = None
 failure_store: "FailureStore | None" = None
 # ffmpeg 的协议代理；由 --proxy 设置。默认不走系统代理，与手机端一致。

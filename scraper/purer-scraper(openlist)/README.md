@@ -63,6 +63,7 @@ scraper_config.json    配置（首次运行后生成，含明文密码）
 scraper.log            运行日志（完整）
 scraper_success.log    成功记录（每个生成的缩略图/雪碧图一行，含文件夹与源地址）
 scraper_failure.log    失败记录（失败摘要 + 完整失败详情）
+scraper_short.log      短片记录（时长不超过雪碧图下限的视频；后续运行直接跳过）
 failed_videos.json     本地失败记录（含详细失败信息）
 duration_cache.json    视频时长缓存（按 URL + 文件大小，可随时删除）
 ```
@@ -114,10 +115,11 @@ python purer_scraper.py
 6. 失败视频会记录到 `failed_videos.json`，后续运行自动跳过；可运行 `python purer_scraper.py --retry-failed` 单独重试
 
 上次使用的地址和文件夹会保存在 `scraper_config.json`，下次直接回车沿用。
-运行日志写入同目录的 `scraper.log`（日志文件不包含终端颜色代码）。成功和失败另外
-按分类写入 `scraper_success.log` / `scraper_failure.log`（文件名跟随 `--log-file`，
-例如 `--log-file /var/log/purer.log` 会得到 `purer_success.log` / `purer_failure.log`）；
-`--no-log` 时三个文件都不写。分类日志每次运行都会写一行「运行开始」分隔。
+运行日志写入同目录的 `scraper.log`（日志文件不包含终端颜色代码）。成功、失败和短片
+另外按分类写入 `scraper_success.log` / `scraper_failure.log` / `scraper_short.log`
+（文件名跟随 `--log-file`，例如 `--log-file /var/log/purer.log` 会得到
+`purer_success.log` / `purer_failure.log` / `purer_short.log`）；
+`--no-log` 时这些文件都不写。分类日志每次运行都会写一行「运行开始」分隔。
 失败视频同时记录到同目录的 `failed_videos.json`，普通运行据此跳过。
 每次运行会写入开始/结束分隔和结束汇总，便于区分多次运行。
 按 Ctrl+C 会取消排队中的视频并终止正在运行的 ffmpeg，不会等整个文件夹跑完。
@@ -165,10 +167,13 @@ https://host/dav/cache/media/movies/00.10.00_vid.mp4~5x5.jpg
 
 - 默认 `5x5`（25 帧），用 `--sprite-grid` 调整；单格最大边长用
   `--sprite-width`（默认 320）。
-- **默认只处理时长超过 300 秒的视频**：短片读完时长后直接跳过（计入「时长不足跳过」，
-  不算失败、不写失败标记），下次运行仍会重新判断。用 `--sprite-min-duration 秒数`
-  或 `scraper_config.json` 里的 `sprite_min_duration` 调整，`0` 表示不限制；
-  普通缩略图模式不受此限制。`--dry-run` 不读取视频时长，短片也会出现在待处理列表中。
+- **默认只处理时长超过 300 秒的视频**：首次读到短片时长后写入 `scraper_short.log`
+  并记入时长缓存（`duration_cache.json`），计入「时长不足跳过」，不算失败、不写失败标记。
+  **后续运行在扫描阶段直接用缓存的时长判断并跳过，不再创建任务、不再 ffprobe**；
+  日志里会显示「短片跳过 N 个」。用 `--sprite-min-duration 秒数` 或
+  `scraper_config.json` 里的 `sprite_min_duration` 调整阈值，缓存时长会按新阈值重新比较，
+  不需要删除记录；`0` 表示不限制。普通缩略图模式不受此限制。
+  `--dry-run` 不读取视频时长，短片也会出现在待处理列表中。
 - 雪碧图总大小上限 **1MB**：超过时自动降低 JPEG 质量，仍超出再缩小整张图；
   App 按实际图片宽高 ÷ 列/行得到单格尺寸即可。
 - 在视频 **10%–95%** 区间内均匀取点（含两端）：第 i 帧位置 =

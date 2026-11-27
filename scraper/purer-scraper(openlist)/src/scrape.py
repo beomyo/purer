@@ -40,6 +40,7 @@ from .console import (
     green,
     log,
     log_failure,
+    log_short,
     log_success,
     progress_bar,
     red,
@@ -1235,6 +1236,7 @@ def scrape(
 
             todo: list[Resource] = []
             skipped_here = 0
+            skipped_short_scan = 0
             failed_here = 0
             existing_label = "雪碧图" if mode == "sprite" else "缩略图"
             for video in videos:
@@ -1255,7 +1257,22 @@ def scrape(
                                     stats.bump(removed=removed_here)
                                     log(f"  已清理旧格子雪碧图 {removed_here} 个：{video.name}")
                     else:
-                        todo.append(video)
+                        cached_duration = durations.get(video.url, video.size)
+                        if (
+                            not dry_run
+                            and sprite_min_duration > 0
+                            and cached_duration is not None
+                            and cached_duration <= sprite_min_duration
+                        ):
+                            # 之前已经记录过是短片：不再创建任务、不再读时长
+                            skipped_short_scan += 1
+                            log_short(
+                                f"{video.name} · 已记录 {cached_duration:.0f}s"
+                                f" ≤ {sprite_min_duration:g}s · "
+                                f"{display_url(folder)} · {video.url}"
+                            )
+                        else:
+                            todo.append(video)
                     continue
                 stale = listing.failures.get(video.name)
                 stored = store.has(video.url) if store is not None else False
@@ -1272,18 +1289,26 @@ def scrape(
                     failed_here += 1
                     continue
                 todo.append(video)
-            stats.bump(skipped=skipped_here, skipped_failed=failed_here)
+            stats.bump(
+                skipped=skipped_here,
+                skipped_failed=failed_here,
+                skipped_short=skipped_short_scan,
+            )
             if limit is not None:
                 remaining = max(0, limit - submitted)
                 todo = todo[:remaining]
             if not todo:
-                log(f"[第 {stats.folders} 个文件夹] {display_url(folder)} · {len(videos)} 个视频均已有{existing_label}或失败记录")
+                log(
+                    f"[第 {stats.folders} 个文件夹] {display_url(folder)} · "
+                    f"{len(videos)} 个视频均已有{existing_label}、已记录短片或失败记录"
+                )
                 continue
 
             log(
                 f"[第 {stats.folders} 个文件夹] {display_url(folder)} · "
                 f"视频 {len(videos)} 个 · 已有 {skipped_here} 个 · "
-                f"失败跳过 {failed_here} 个 · 待处理 {len(todo)} 个"
+                + (f"短片跳过 {skipped_short_scan} 个 · " if skipped_short_scan else "")
+                + f"失败跳过 {failed_here} 个 · 待处理 {len(todo)} 个"
             )
             show_status(folder, 0, len(todo))
             if dry_run:
@@ -1409,13 +1434,16 @@ def scrape(
                                 stats.bump(removed=removed_here)
                                 log(f"  已清理旧格子雪碧图 {removed_here} 个：{video.name}")
                     except VideoSkipped as exc:
-                        # 时长低于雪碧图下限：主动跳过，不写失败标记/本地失败记录，
-                        # 下次运行仍会重新判断（调整阈值后即可处理）。
+                        # 时长低于雪碧图下限：主动跳过并记录，后续运行直接按记录跳过
                         stats.bump(skipped_short=1)
                         server_streak = 0
                         log(
                             f"  {dim('已跳过')} [{done_count}/{len(todo)}] {video.name}：{exc}"
                             f" · 用时 {elapsed:.1f}s"
+                        )
+                        log_short(
+                            f"{video.name} · 新增记录：{exc} · "
+                            f"{display_url(folder)} · {video.url}"
                         )
                     except VideoUnsupported as exc:
                         # 编码不在支持列表：主动跳过，不计失败、不写失败标记

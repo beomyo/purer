@@ -209,6 +209,16 @@ def log_failure(message: str) -> None:
         _append_line(path, line)
 
 
+def log_short(message: str) -> None:
+    """只写短片记录日志；用于「时长不足，后续直接跳过」的清单。"""
+    path = runtime.short_log_path
+    if path is None:
+        return
+    line = f"[{time.strftime('%H:%M:%S')}] {message}"
+    with runtime.log_lock:
+        _append_line(path, line)
+
+
 def log_line(message: str) -> None:
     """只写日志文件，不打印到终端；用于运行分隔和结束汇总。"""
     if runtime.log_path is None:

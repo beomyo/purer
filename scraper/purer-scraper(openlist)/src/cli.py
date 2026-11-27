@@ -19,6 +19,7 @@ from .console import (
     log,
     log_failure,
     log_line,
+    log_short,
     log_success,
     red,
     setup_console,
@@ -194,12 +195,14 @@ def main(argv: list[str] | None = None) -> int:
         runtime.log_path = None
         runtime.success_log_path = None
         runtime.failure_log_path = None
+        runtime.short_log_path = None
     else:
         runtime.log_path = Path(args.log_file)
         suffix = runtime.log_path.suffix or ".log"
         stem = runtime.log_path.name[: -len(suffix)] if runtime.log_path.suffix else runtime.log_path.name
         runtime.success_log_path = runtime.log_path.with_name(f"{stem}_success{suffix}")
         runtime.failure_log_path = runtime.log_path.with_name(f"{stem}_failure{suffix}")
+        runtime.short_log_path = runtime.log_path.with_name(f"{stem}_short{suffix}")
     runtime.ffmpeg_proxy = args.proxy
     runtime.cancel_event.clear()
     runtime.run_summary = None
@@ -210,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
         log_line(started)
         log_success(started)
         log_failure(started)
+        log_short(started)
 
     config_path = Path(args.config)
     config = load_config(config_path)
@@ -706,6 +710,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"日志：{runtime.log_path}")
         print(f"      成功：{runtime.success_log_path}")
         print(f"      失败：{runtime.failure_log_path}")
+        print(f"      短片：{runtime.short_log_path}")
     else:
         print("日志：未写入文件")
     return 0 if stats.failed == 0 else 1
