@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  AccountVerifyError,
   getMasterText,
+  isAccountVerifyMessage,
   listDir,
   listSubfolders,
   listVideos,
@@ -333,6 +335,42 @@ describe('分页', () => {
       'v0.mp4', 'v1.mp4', 'v2.mp4', 'v3.mp4', 'v4.mp4',
     ])
     expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('账号验证', () => {
+  it('识别 115 的验证账号提示', () => {
+    expect(isAccountVerifyMessage('请验证账号')).toBe(true)
+    expect(isAccountVerifyMessage('请先完成身份验证')).toBe(true)
+    expect(isAccountVerifyMessage('未转码')).toBe(false)
+    expect(isAccountVerifyMessage('登录已失效')).toBe(false)
+  })
+
+  it('文件列表返回 state=false + 请验证账号 时抛出 AccountVerifyError', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      state: false,
+      error: '请验证账号',
+    })))
+    await expect(listVideos('0')).rejects.toBeInstanceOf(AccountVerifyError)
+  })
+
+  it('HTTP 401 的正文提示验证账号时也抛出 AccountVerifyError，且不再回退请求', async () => {
+    const fetchMock = vi.fn(async () => statusResponse(
+      401,
+      '{"state":false,"error":"请验证账号"}',
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(listVideos('0')).rejects.toBeInstanceOf(AccountVerifyError)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('播放列表要求验证账号时不重试，直接抛 AccountVerifyError', async () => {
+    const fetchMock = vi.fn(async () => textResponse(
+      '{"state":false,"error":"请验证账号","code":401}',
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(getMasterText('pc')).rejects.toBeInstanceOf(AccountVerifyError)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
 

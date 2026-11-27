@@ -2,7 +2,7 @@ import type { Dir115Item } from './api115'
 import type { ScraperSettings } from './settings'
 import type { VideoItem } from './types'
 import type { DavEntry, WebDavClient } from './webdav'
-import { listDir, normalizeFolderName } from './api115'
+import { AccountVerifyError, listDir, normalizeFolderName } from './api115'
 import { joinFolder, normalizeFolder } from './webdav'
 
 /** 与 purer-scraper 一致的视频扩展名 */
@@ -142,6 +142,10 @@ async function readFolder(
     items115 = itemsResult.value.items
   }
   else {
+    // 115 要求验证账号时整批任务都无法继续，交给调用方中止
+    if (itemsResult.reason instanceof AccountVerifyError) {
+      throw itemsResult.reason
+    }
     onLog?.(`读取 115 目录失败（${relativeDir || '根目录'}）：${messageOf(itemsResult.reason)}`, 'error')
   }
 

@@ -15,6 +15,7 @@ vi.mock('../api115', async (importOriginal) => {
   }
 })
 
+import { AccountVerifyError } from '../api115'
 import { collectVideos } from '../collector'
 
 function folder(name: string, folderId: string): Dir115Item {
@@ -41,6 +42,13 @@ beforeEach(() => {
 })
 
 describe('collectVideos', () => {
+  it('115 要求验证账号时中止扫描，而不是跳过文件夹', async () => {
+    listDirMock.mockRejectedValue(new AccountVerifyError('请验证账号'))
+    await expect(
+      collectVideos({ settings, startCid: 'root', sourceClient: null }),
+    ).rejects.toBeInstanceOf(AccountVerifyError)
+  })
+
   it('源 WebDAV 不可用时，按 115 目录递归', async () => {
     listDirMock.mockImplementation(async (cid: string) => {
       if (cid === 'root') {

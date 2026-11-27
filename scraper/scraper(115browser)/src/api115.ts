@@ -29,6 +29,43 @@ export class PlaylistRequestError extends Error {
   }
 }
 
+/**
+ * 115 要求先验证账号（风控/异地登录）
+ * @description 这不是单个视频的问题：继续请求只会让整批任务全部失败，
+ * 调用方应当立即停止处理，并提示用户去 115 网页完成账号验证。
+ */
+export class AccountVerifyError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AccountVerifyError'
+  }
+}
+
+/** 115 返回的错误信息是否表示「需要验证账号」 */
+export function isAccountVerifyMessage(message: string): boolean {
+  return /请验证账号|验证账号|账号验证|验证身份|身份验证|安全验证/.test(message)
+}
+
+/** 从响应正文里识别「需要验证账号」错误（JSON 的 error/msg 字段，或纯文本正文） */
+function accountVerifyErrorFromBody(text: string): AccountVerifyError | null {
+  if (!text) {
+    return null
+  }
+  const data = tryParseJson(text)
+  if (data) {
+    const message = String(data?.error ?? data?.msg ?? '')
+    if (message && isAccountVerifyMessage(message)) {
+      return new AccountVerifyError(message)
+    }
+    return null
+  }
+  // 非 JSON 正文（HTML 错误页等）只认明确的「请验证账号」，避免误判普通登录页
+  if (/请验证账号|验证账号/.test(text)) {
+    return new AccountVerifyError(text.trim().slice(0, 200))
+  }
+  return null
+}
+
 /** 原生 fetch 在当前网络下不可用的站点，后续直接走 GM 请求，避免每次多一次失败请求 */
 const gmOnlyHosts = new Set<string>()
 
@@ -131,12 +168,22 @@ async function requestJson(url: string): Promise<any> {
     try {
       const response = await fetch(url, { credentials: 'include' })
       if (!response.ok) {
+        // HTTP 401 等错误也可能带「请验证账号」的正文，先读出来再判断
+        const text = await response.text().catch(() => '')
+        const verifyError = accountVerifyErrorFromBody(text)
+        if (verifyError) {
+          throw verifyError
+        }
         throw new Error(`HTTP ${response.status}`)
       }
       return await response.json()
     }
     catch (error) {
       firstError = error
+      // 账号验证是整批问题，不再回退 GM 请求
+      if (error instanceof AccountVerifyError) {
+        throw error
+      }
       // HTTP 错误说明原生请求本身是通的；只有网络/CORS 类失败才记住这个 host
       if (!(error instanceof Error && /^HTTP \d+/.test(error.message))) {
         gmOnlyHosts.add(host)
@@ -147,11 +194,18 @@ async function requestJson(url: string): Promise<any> {
   try {
     const response = await gmRequest({ url, responseType: 'text', timeout: 30_000 })
     if (response.status < 200 || response.status >= 300) {
+      const verifyError = accountVerifyErrorFromBody(response.text)
+      if (verifyError) {
+        throw verifyError
+      }
       throw new Error(`HTTP ${response.status}`)
     }
     return JSON.parse(response.text)
   }
-  catch {
+  catch (error) {
+    if (error instanceof AccountVerifyError) {
+      throw error
+    }
     throw firstError ?? new Error('115 文件列表获取失败')
   }
 }
@@ -196,7 +250,11 @@ async function fetchFilesPage(
 ): Promise<any> {
   const data = await requestJson(filesUrl(cid, type, showDir, offset, limit))
   if (data?.state === false) {
-    throw new Error(data?.error || '115 文件列表获取失败')
+    const message = String(data?.error ?? data?.msg ?? '')
+    if (isAccountVerifyMessage(message)) {
+      throw new AccountVerifyError(message || '115 要求验证账号')
+    }
+    throw new Error(message || '115 文件列表获取失败')
   }
   return data
 }
@@ -419,7 +477,11 @@ async function findCidByPathSuffix(names: string[]): Promise<{ cid: string, path
     try {
       folders = (await listSubfolders(node.cid)).folders
     }
-    catch {
+    catch (error) {
+      // 账号验证失败是整批问题，需要让调用方立即停止
+      if (error instanceof AccountVerifyError) {
+        throw error
+      }
       // 单个目录读失败不影响其他分支
       continue
     }
@@ -653,9 +715,17 @@ function interpretPlaylist(status: number, text: string): string {
     return text
   }
 
+  // 正文直接写了「请验证账号」时（可能是非 JSON 的错误页），也按账号验证处理
+  if (!trimmed.startsWith('{') && /请验证账号|验证账号/.test(trimmed)) {
+    throw new AccountVerifyError(trimmed.slice(0, 200))
+  }
+
   const data = tryParseJson(trimmed)
   if (data && data.state === false) {
     const message = String(data.error ?? data.msg ?? '115 未生成转码播放列表')
+    if (isAccountVerifyMessage(message)) {
+      throw new AccountVerifyError(message)
+    }
     if (TRANSIENT_115_MESSAGE_RE.test(message)) {
       throw new PlaylistRequestError(`HTTP ${status} ${message}`.trim())
     }
@@ -670,7 +740,7 @@ function interpretPlaylist(status: number, text: string): string {
 
 /** 播放列表失败是否值得再试 */
 function isRetryablePlaylistError(error: unknown): boolean {
-  if (error instanceof NoHlsError) {
+  if (error instanceof NoHlsError || error instanceof AccountVerifyError) {
     return false
   }
   if (error instanceof PlaylistRequestError) {
@@ -705,7 +775,7 @@ export async function getMasterText(pickCode: string): Promise<string> {
       return interpretPlaylist(response.status, response.text)
     }
     catch (error) {
-      if (error instanceof NoHlsError) {
+      if (error instanceof NoHlsError || error instanceof AccountVerifyError) {
         throw error
       }
       lastError = error
@@ -719,11 +789,16 @@ export async function getMasterText(pickCode: string): Promise<string> {
     }
   }
 
+  if (lastError instanceof AccountVerifyError) {
+    throw lastError
+  }
   const reason = lastError instanceof Error ? lastError.message : String(lastError)
   const retried = attempts > 1 ? `（已尝试 ${attempts} 次）` : ''
   // 115 对没有转码文件的视频会在 m3u8 接口返回 403；
-  // 重试后仍是 403、且正文没有提示登录/频控时，按「未转码」处理
-  if (/HTTP 403/.test(reason) && !TRANSIENT_115_MESSAGE_RE.test(reason)) {
+  // 重试后仍是 403、且正文没有提示登录/频控/账号验证时，按「未转码」处理
+  if (/HTTP 403/.test(reason)
+    && !TRANSIENT_115_MESSAGE_RE.test(reason)
+    && !isAccountVerifyMessage(reason)) {
     const detail = attempts > 1 ? `HTTP 403，已尝试 ${attempts} 次` : 'HTTP 403'
     throw new NoHlsError(`115 未生成转码播放列表（${detail}）`)
   }

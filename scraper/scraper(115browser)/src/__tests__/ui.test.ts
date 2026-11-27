@@ -35,6 +35,9 @@ describe('UI 初始化', () => {
       'ts-failures-list',
       'ts-count-notranscode',
       'ts-output-counts',
+      'ts-verify-notice',
+      'ts-verify-open',
+      'ts-verify-dismiss',
     ]
     for (const id of ids) {
       expect(document.getElementById(id), `缺少 #${id}`).not.toBeNull()

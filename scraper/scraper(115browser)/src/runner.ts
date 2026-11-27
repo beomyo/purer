@@ -1,7 +1,7 @@
 import type { Grid } from './sprite'
 import type { ScraperSettings } from './settings'
 import type { Mode, Row, VideoItem } from './types'
-import { getMasterText, masterUrl, NoHlsError, PlaylistRequestError } from './api115'
+import { AccountVerifyError, getMasterText, masterUrl, NoHlsError, PlaylistRequestError } from './api115'
 import { cacheBaseName, createCacheLookup } from './cacheName'
 import { HlsError } from './hls'
 import { getImageResize } from './image'
@@ -604,6 +604,9 @@ async function runVideo(options: {
 
 /** 失败原因 */
 export function reasonOf(error: unknown): string {
+  if (error instanceof AccountVerifyError) {
+    return 'verify'
+  }
   if (error instanceof NoHlsError) {
     return 'no-hls'
   }
@@ -640,6 +643,7 @@ export function reasonOf(error: unknown): string {
 /** 失败原因的中文名（给界面/日志用） */
 export function reasonLabel(reason: string): string {
   const labels: Record<string, string> = {
+    'verify': '需要验证 115 账号',
     'no-hls': '未转码',
     'network': '网络/授权失败',
     'timeout': '取帧超时',
@@ -707,11 +711,13 @@ export async function runRows(options: RunOptions): Promise<void> {
   }
 
   let nextIndex = 0
+  // 115 要求验证账号时整批任务都会失败：记录第一个错误，停止派发新视频
+  let verifyError: AccountVerifyError | null = null
   const workerCount = Math.max(1, Math.min(settings.videoConcurrency, queue.length))
 
   const workers = Array.from({ length: workerCount }, async () => {
     while (true) {
-      if (cancel.cancelled) {
+      if (cancel.cancelled || verifyError) {
         return
       }
       const index = nextIndex++
@@ -787,6 +793,23 @@ export async function runRows(options: RunOptions): Promise<void> {
           continue
         }
 
+        // 账号验证失败：这一条标记失败，并让所有 worker 停止派发新视频
+        if (error instanceof AccountVerifyError) {
+          row.status = 'error'
+          row.progress = 0
+          row.progressText = ''
+          row.message = error.message
+          options.onRowUpdate(row)
+          options.onEvent({
+            category: 'error',
+            row,
+            message: row.message,
+            reason: 'verify',
+          })
+          verifyError = verifyError ?? error
+          return
+        }
+
         row.status = 'error'
         row.message = messageOf(error)
         options.onRowUpdate(row)
@@ -801,4 +824,8 @@ export async function runRows(options: RunOptions): Promise<void> {
   })
 
   await Promise.all(workers)
+  // 抛给调用方：由界面中止后续文件夹并提醒用户验证账号
+  if (verifyError) {
+    throw verifyError
+  }
 }

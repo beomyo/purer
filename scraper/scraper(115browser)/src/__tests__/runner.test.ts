@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NoHlsError, PlaylistRequestError } from '../api115'
+import { AccountVerifyError, NoHlsError, PlaylistRequestError } from '../api115'
 import {
   buildRows,
   buildTargetFolder,
@@ -187,5 +187,10 @@ describe('失败原因', () => {
     expect(reasonLabel('no-hls')).toBe('未转码')
     expect(reasonLabel('network')).toBe('网络/授权失败')
     expect(reasonLabel('something-else')).toBe('something-else')
+  })
+
+  it('账号验证单独归类', () => {
+    expect(reasonOf(new AccountVerifyError('请验证账号'))).toBe('verify')
+    expect(reasonLabel('verify')).toContain('验证')
   })
 })

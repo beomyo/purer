@@ -15,7 +15,7 @@ export default defineConfig({
       userscript: {
         name: '115 缩略图/雪碧图生成器',
         namespace: '115-thumbnail-scraper',
-        version: '1.5.0',
+        version: '1.6.0',
         description: '在 115 网页里用 WebCodecs 批量生成 Purer 兼容的缩略图和雪碧图，直接写入 WebDAV 缓存',
         author: '115-thumbnail-scraper',
         match: ['https://115.com/*'],

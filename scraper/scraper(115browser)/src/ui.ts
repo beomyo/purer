@@ -5,7 +5,7 @@ import type { ScraperSettings } from './settings'
 import type { CidResolution } from './api115'
 import type { SourceTarget } from './sourceFolder'
 import { GM_addStyle, GM_getValue, GM_registerMenuCommand, GM_setValue } from '$'
-import { listVideos, probeRootApi, resolveCidByPathDetailed } from './api115'
+import { AccountVerifyError, listVideos, probeRootApi, resolveCidByPathDetailed } from './api115'
 import { walkFolders } from './collector'
 import {
   addFailure,
@@ -36,6 +36,11 @@ const STYLE = `
 #ts-root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 13px; line-height: 1.5; color: #111827; }
 .ts-launcher { position: fixed; right: 24px; bottom: 84px; z-index: 2147483000; border: 0; border-radius: 999px; padding: 10px 16px; background: #2563eb; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 6px 20px rgba(37,99,235,.35); }
 .ts-launcher.ts-running { background: #0f766e; box-shadow: 0 6px 20px rgba(15,118,110,.35); }
+.ts-launcher.ts-alert { background: #dc2626; box-shadow: 0 6px 20px rgba(220,38,38,.4); }
+.ts-verify { margin-bottom: 12px; border: 1px solid #fca5a5; border-radius: 8px; background: #fef2f2; padding: 10px 12px; }
+.ts-verify-title { font-size: 13px; font-weight: 700; color: #b91c1c; }
+.ts-verify-text { margin-top: 4px; font-size: 12px; color: #7f1d1d; word-break: break-all; }
+.ts-verify .ts-actions-row { padding: 8px 0 0; }
 .ts-overlay { display: none; position: fixed; inset: 0; z-index: 2147483000; align-items: center; justify-content: center; background: rgba(15,23,42,.55); padding: 16px; }
 .ts-overlay.ts-show { display: flex; }
 .ts-panel { display: flex; flex-direction: column; width: min(1180px, 96vw); max-height: 92vh; overflow: hidden; border-radius: 12px; background: #fff; color: #111827; box-shadow: 0 24px 80px rgba(0,0,0,.35); }
@@ -171,6 +176,11 @@ let progressTimer: number | null = null
 let lockTimer: number | null = null
 let lastBusy: boolean | null = null
 let renderedRowsRef: Row[] | null = null
+/** 115 要求验证账号：面板/悬浮按钮保持红色提醒，直到下次开始处理 */
+let verifyNeeded = false
+/** 本次运行已经播放过验证提醒音 */
+let verifyNoticeShown = false
+let alertAudio: AudioContext | null = null
 const rowElements = new Map<string, HTMLTableRowElement>()
 
 interface RunLock {
@@ -203,6 +213,14 @@ const PANEL_HTML = `
       <button id="ts-close" class="ts-close" type="button" title="关闭">×</button>
     </div>
     <div class="ts-scroll">
+      <div id="ts-verify-notice" class="ts-verify" style="display:none">
+        <div class="ts-verify-title">115 要求验证账号，已停止处理</div>
+        <div id="ts-verify-text" class="ts-verify-text"></div>
+        <div class="ts-actions-row">
+          <button id="ts-verify-open" class="ts-btn ts-danger" type="button">打开 115 网页完成验证</button>
+          <button id="ts-verify-dismiss" class="ts-btn" type="button">知道了</button>
+        </div>
+      </div>
       <section class="ts-section">
         <div class="ts-section-title">保存地址</div>
         <div class="ts-grid">
@@ -463,6 +481,103 @@ function setTaskStatus(text: string, kind: 'ok' | 'error' | '' = ''): void {
   element.className = `ts-status${kind === 'ok' ? ' ts-ok' : kind === 'error' ? ' ts-err' : ''}`
 }
 
+/** 预创建 AudioContext：点击「开始处理」属于用户手势，之后才能可靠地播放提示音 */
+function prepareAlertAudio(): void {
+  try {
+    const Ctor = window.AudioContext
+      ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!Ctor) {
+      return
+    }
+    alertAudio ??= new Ctor()
+    if (alertAudio.state === 'suspended') {
+      void alertAudio.resume().catch(() => {})
+    }
+  }
+  catch {
+    // 浏览器不支持/不允许音频时静默处理
+  }
+}
+
+/** 提醒音：三声短促提示音（Web Audio，不依赖外部资源） */
+function playAlertSound(): void {
+  try {
+    prepareAlertAudio()
+    const ctx = alertAudio
+    if (!ctx) {
+      return
+    }
+    const start = ctx.currentTime + 0.02
+    const notes: [number, number][] = [[0, 880], [0.28, 1174.66], [0.56, 880]]
+    for (const [offset, frequency] of notes) {
+      const oscillator = ctx.createOscillator()
+      const gain = ctx.createGain()
+      oscillator.type = 'sine'
+      oscillator.frequency.value = frequency
+      const at = start + offset
+      gain.gain.setValueAtTime(0.0001, at)
+      gain.gain.exponentialRampToValueAtTime(0.25, at + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.22)
+      oscillator.connect(gain)
+      gain.connect(ctx.destination)
+      oscillator.start(at)
+      oscillator.stop(at + 0.24)
+    }
+  }
+  catch {
+    // 忽略音频播放失败
+  }
+}
+
+/**
+ * 115 要求验证账号：停止处理并醒目提醒
+ * @description 继续请求只会让每个视频都失败，因此先中止整批任务，
+ * 打开面板显示红色提示，并播放提示音；用户完成验证后重新开始即可。
+ */
+function showVerifyNotice(message: string): void {
+  if (verifyNoticeShown) {
+    return
+  }
+  verifyNoticeShown = true
+  verifyNeeded = true
+
+  const notice = $id<HTMLElement>('ts-verify-notice')
+  const text = $id<HTMLElement>('ts-verify-text')
+  if (notice) {
+    notice.style.display = ''
+  }
+  if (text) {
+    text.textContent = `115 返回：${message || '请验证账号'}。请在 115 网页完成账号验证（如手机/短信验证），验证成功后再点「开始处理」继续；已生成的视频会按「跳过已存在」跳过。`
+  }
+
+  if (!panelOpen) {
+    openPanel()
+  }
+  setTaskStatus('115 要求验证账号，已停止处理；请完成验证后再继续', 'error')
+  updateStatusText()
+  addEvent('error', { message: `115 要求验证账号，已停止处理：${message || '请验证账号'}` })
+  activeLogTab = 'error'
+  renderLogs()
+  playAlertSound()
+  notice?.scrollIntoView?.({ block: 'nearest' })
+}
+
+/** 用户点「知道了」：只隐藏提示，本次运行不再重复提醒 */
+function dismissVerifyNotice(): void {
+  verifyNeeded = false
+  const notice = $id<HTMLElement>('ts-verify-notice')
+  if (notice) {
+    notice.style.display = 'none'
+  }
+  updateStatusText()
+}
+
+/** 开始新任务时清掉验证提醒，让下一次失败可以重新提醒 */
+function hideVerifyNotice(): void {
+  verifyNoticeShown = false
+  dismissVerifyNotice()
+}
+
 /* -------------------------------------------------------------------------- */
 /* 表单                                                                        */
 /* -------------------------------------------------------------------------- */
@@ -596,7 +711,11 @@ function updateStatusText(): void {
   let launcherText = '缩略图'
   let launcherRunning = false
 
-  if (starting) {
+  if (verifyNeeded) {
+    headerText = '需要验证 115 账号，处理已停止'
+    launcherText = '需要验证账号'
+  }
+  else if (starting) {
     headerText = '准备中…'
     headerRunning = true
     launcherText = '准备中…'
@@ -638,6 +757,7 @@ function updateStatusText(): void {
     launcher.textContent = launcherText
     launcher.title = launcherText
     launcher.classList.toggle('ts-running', launcherRunning)
+    launcher.classList.toggle('ts-alert', verifyNeeded)
   }
 }
 
@@ -1002,6 +1122,7 @@ async function scan(): Promise<void> {
   if (running || scanning || starting) {
     return
   }
+  hideVerifyNotice()
   scanning = true
   rows = []
   events = []
@@ -1078,6 +1199,10 @@ async function scan(): Promise<void> {
     }
   }
   catch (error) {
+    if (error instanceof AccountVerifyError) {
+      showVerifyNotice(messageOf(error))
+      return
+    }
     setTaskStatus(`扫描失败：${messageOf(error)}`, 'error')
     setConnectionStatus(`扫描失败：${messageOf(error)}`, 'error')
     addEvent('error', { message: `扫描失败：${messageOf(error)}` })
@@ -1125,6 +1250,11 @@ function handleVideoEvent(event: RunEvent): void {
   })
   if (event.category === 'error') {
     videoErrors++
+    // 账号验证失败是整批问题，不写进按视频重试的失败记录，改为提醒用户去验证
+    if (event.reason === 'verify') {
+      showVerifyNotice(event.message)
+      return
+    }
     failureRecords = addFailure({
       time: new Date().toISOString(),
       name: event.row.name,
@@ -1150,6 +1280,7 @@ async function start(): Promise<void> {
     return
   }
 
+  hideVerifyNotice()
   // 先占住状态，避免启动阶段的 await 期间被双击/扫描插入第二套任务
   starting = true
   cancelToken = { cancelled: false }
@@ -1307,6 +1438,10 @@ async function start(): Promise<void> {
           if (cancelToken.cancelled) {
             return
           }
+          // 账号验证失败：中止整批任务，不再继续后面的文件夹
+          if (error instanceof AccountVerifyError) {
+            throw error
+          }
           const message = messageOf(error)
           folderErrors++
           addEvent('error', { folder: folderLabel, message: `文件夹处理失败，已继续下一个：${message}` })
@@ -1333,6 +1468,10 @@ async function start(): Promise<void> {
     saveSettings(settings)
   }
   catch (error) {
+    if (error instanceof AccountVerifyError) {
+      showVerifyNotice(messageOf(error))
+      return
+    }
     const label = running ? '处理中断' : '启动失败'
     setTaskStatus(`${label}：${messageOf(error)}`, 'error')
     addEvent('error', { message: `${label}：${messageOf(error)}` })
@@ -1371,6 +1510,7 @@ async function retryFailures(): Promise<void> {
     return
   }
 
+  hideVerifyNotice()
   starting = true
   cancelToken = { cancelled: false }
   runStartTime = Date.now()
@@ -1472,6 +1612,10 @@ async function retryFailures(): Promise<void> {
     activeLogTab = totals.error > 0 ? 'error' : totals.notranscode > 0 ? 'notranscode' : 'success'
   }
   catch (error) {
+    if (error instanceof AccountVerifyError) {
+      showVerifyNotice(messageOf(error))
+      return
+    }
     const label = running ? '重试中断' : '重试启动失败'
     setTaskStatus(`${label}：${messageOf(error)}`, 'error')
     addEvent('error', { message: `${label}：${messageOf(error)}` })
@@ -1794,10 +1938,19 @@ function closePanel(): void {
 function bindEvents(): void {
   $id('ts-launcher')?.addEventListener('click', openPanel)
   $id('ts-close')?.addEventListener('click', closePanel)
-  $id('ts-scan')?.addEventListener('click', () => { void scan() })
-  $id('ts-start')?.addEventListener('click', () => { void start() })
+  $id('ts-scan')?.addEventListener('click', () => {
+    prepareAlertAudio()
+    void scan()
+  })
+  $id('ts-start')?.addEventListener('click', () => {
+    prepareAlertAudio()
+    void start()
+  })
   $id('ts-cancel')?.addEventListener('click', cancel)
-  $id('ts-retry-failures')?.addEventListener('click', () => { void retryFailures() })
+  $id('ts-retry-failures')?.addEventListener('click', () => {
+    prepareAlertAudio()
+    void retryFailures()
+  })
   $id('ts-test')?.addEventListener('click', () => { void testConnection() })
   $id('ts-browse-folder')?.addEventListener('click', () => { void openSourcePicker() })
   $id('ts-picker-close')?.addEventListener('click', closePicker)
@@ -1812,6 +1965,10 @@ function bindEvents(): void {
   })
   $id('ts-export-failures')?.addEventListener('click', exportFailures)
   $id('ts-clear-failures')?.addEventListener('click', clearFailures)
+  $id('ts-verify-open')?.addEventListener('click', () => {
+    window.open('https://115.com/', '_blank', 'noopener')
+  })
+  $id('ts-verify-dismiss')?.addEventListener('click', dismissVerifyNotice)
 
   must<HTMLDivElement>('ts-overlay').addEventListener('click', (event) => {
     if (event.target === $id('ts-overlay')) {
