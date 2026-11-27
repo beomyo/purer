@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = "1.13.0"
+VERSION = "1.14.0"
 USER_AGENT = f"PurerDesktopScraper/{VERSION}"
 
 # ---- 失败标记（与 App 的 CloudMediaCache / CloudThumbnailScraper 一致） ----
@@ -42,11 +42,11 @@ FAILURE_LABELS = {
 # ---- 与 App 一致的抽帧频率与超时 ----
 
 DEFAULT_PERCENT = 80.0      # 桌面端默认取 80% 位置（App 默认 20%；可用 --percent 改）
-DEFAULT_RATE = 2.0          # 次/秒
+DEFAULT_RATE = 1.0          # 次/秒（115 风控敏感，桌面端默认降到 1）
 MIN_RATE = 1.0
 MAX_RATE = 20.0             # App 设置范围为 1–20
 MAX_JOBS = 4                # App 同时最多 4 个抽帧
-DEFAULT_JOBS = 2            # 桌面端默认 2，避免 WebDAV 服务端并发过载；需要时可用 --jobs 调到 4
+DEFAULT_JOBS = 1            # 桌面端默认 1，避免触发 115 风控；需要时可用 --jobs 调到 4
 PROBE_TIMEOUT = 20          # 读取时长的超时（秒）
 EXTRACT_TIMEOUT = 45        # 单次抽帧的超时（秒）
 MAX_RETRY_TIMEOUT = 300.0   # 重试时超时延长的上限（秒）
@@ -111,6 +111,10 @@ SPRITE_TS_WINDOW_MAX = 32 * 1024 * 1024      # 窗口上限（重试时最多再
 SPRITE_TS_WORKERS = 2                        # 同一文件的并发窗口读取数
 SPRITE_TS_ATTEMPTS = 3                       # 每个窗口的读取尝试次数
 SPRITE_TS_DECODE_TIMEOUT = 60.0              # 单个窗口本地解码的超时
+# 默认跳过的不支持编码（大写 fourcc）。AVI 头里识别到就直接跳过，不计失败。
+DEFAULT_UNSUPPORTED_CODECS = ("CUVC",)
+# 每启动一个视频至少间隔多少秒；115 风控敏感，默认固定为保守值。
+DEFAULT_VIDEO_PAUSE = 30.0
 # ---- 雪碧图 AVI(DV) 快速路径 ----
 # DV AVI 的帧是定长的（NTSC 120000 / PAL 144000 字节），按字节窗口找到 00db 块
 # 后直接本地解码；CUVC 等 ffmpeg 没有解码器的编码则快速失败，不再远程卡死。

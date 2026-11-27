@@ -46,6 +46,14 @@ class VideoSkipped(Exception):
         self.duration = duration
 
 
+class VideoUnsupported(Exception):
+    """视频编码不受 ffmpeg 支持，主动跳过（不计入失败，也不写失败标记）。"""
+
+    def __init__(self, message: str, *, codec: str | None = None) -> None:
+        super().__init__(message)
+        self.codec = codec
+
+
 class WebDavError(Exception):
     """WebDAV 请求失败；status 是 HTTP 状态码（网络错误时为 None）。"""
 

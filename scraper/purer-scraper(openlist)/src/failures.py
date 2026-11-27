@@ -29,7 +29,7 @@ from .constants import (
     RECORDED_FAILURES,
     STALL_TIMEOUT,
 )
-from .errors import VideoError, VideoSkipped, failure_label
+from .errors import VideoError, VideoSkipped, VideoUnsupported, failure_label
 from .failure_report import collect_failure_details, log_failure_details
 from .rate import RateLimiter
 from .scrape import scrape_one, scrape_one_sprite
@@ -346,6 +346,7 @@ class RetryContext:
     sprite_min_duration: float = DEFAULT_SPRITE_MIN_DURATION
     sprite_index: bool = True
     sprite_window: bool = True
+    unsupported_codecs: frozenset[str] | None = None
 
 
 def _select_markers(markers: list[FailedMarker], raw: str) -> list[FailedMarker]:
@@ -403,6 +404,7 @@ def _retry_one(ctx: RetryContext, marker: FailedMarker) -> bool:
                 min_duration=ctx.sprite_min_duration,
                 sprite_index=ctx.sprite_index,
                 sprite_window=ctx.sprite_window,
+                unsupported_codecs=ctx.unsupported_codecs,
             )
         else:
             filename, duration = scrape_one(
@@ -429,6 +431,10 @@ def _retry_one(ctx: RetryContext, marker: FailedMarker) -> bool:
             )
     except VideoSkipped as exc:
         # 时长不足被跳过：不是失败，保持原状态即可（雪碧图模式下本来也不写标记）。
+        log(f"  {dim('已跳过')} {marker.name}：{exc}")
+        return False
+    except VideoUnsupported as exc:
+        # 编码不在支持列表：主动跳过，不是失败
         log(f"  {dim('已跳过')} {marker.name}：{exc}")
         return False
     except Exception as exc:  # noqa: BLE001

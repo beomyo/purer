@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 from . import runtime, upstream
 from .constants import (
+    DEFAULT_UNSUPPORTED_CODECS,
     EXTRACT_TIMEOUT,
     SPRITE_AVI_DECODE_TIMEOUT,
     SPRITE_AVI_MAX_CHUNK,
@@ -41,10 +42,7 @@ from .webdav import WebDav
 _DV_HANDLERS = {
     b"dvsd", b"dv25", b"dv50", b"dvh1", b"dvhe", b"dvc ", b"dvcp", b"dvpp",
 }
-# 已知 ffmpeg 没有解码器的编码，遇到就直接失败，不再走远程卡死
-_UNSUPPORTED = {
-    b"CUVC": "CUVC",
-}
+# 默认跳过名单由 constants.DEFAULT_UNSUPPORTED_CODECS 提供，可写进配置
 _MIN_JPEG_BYTES = 800
 
 
@@ -144,7 +142,12 @@ def _chunk_id(buf: bytes) -> bytes:
     return b"00db"
 
 
-def prepare_avi_info(client: WebDav, url: str, size: int | None) -> AviInfo:
+def prepare_avi_info(
+    client: WebDav,
+    url: str,
+    size: int | None,
+    unsupported_codecs: set[str] | frozenset[str] | None = None,
+) -> AviInfo:
     """读 AVI 头部判断编码；不是 AVI / 不是 DV 抛 AviWindowUnavailable。"""
     if not size or size <= 0:
         raise AviWindowUnavailable("没有文件大小")
@@ -157,9 +160,13 @@ def prepare_avi_info(client: WebDav, url: str, size: int | None) -> AviInfo:
         raise AviWindowUnavailable("没有视频轨")
     handler, compression, width, height = stream
     codec = (handler or compression).decode("ascii", "replace").strip().upper()
-    for bad, name in _UNSUPPORTED.items():
-        if handler == bad or compression == bad:
-            raise AviCodecUnsupported(name)
+    skipped = (
+        set(unsupported_codecs)
+        if unsupported_codecs is not None
+        else set(DEFAULT_UNSUPPORTED_CODECS)
+    )
+    if codec and codec in {item.upper() for item in skipped}:
+        raise AviCodecUnsupported(codec)
     if handler not in _DV_HANDLERS and compression not in _DV_HANDLERS:
         raise AviWindowUnavailable(f"AVI 编码 {codec or '未知'} 不在 DV 快速路径内")
     movi = _movi_start(head)

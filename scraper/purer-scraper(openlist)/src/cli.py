@@ -33,6 +33,8 @@ from .constants import (
     DEFAULT_SPRITE_GRID,
     DEFAULT_SPRITE_MIN_DURATION,
     DEFAULT_SPRITE_WIDTH,
+    DEFAULT_UNSUPPORTED_CODECS,
+    DEFAULT_VIDEO_PAUSE,
     EXTRACT_TIMEOUT,
     MAX_JOBS,
     MAX_RATE,
@@ -392,7 +394,17 @@ def main(argv: list[str] | None = None) -> int:
     video_pause = (
         args.video_pause
         if args.video_pause is not None
-        else config_number(config, "video_pause", 0.0, float)
+        else config_number(config, "video_pause", DEFAULT_VIDEO_PAUSE, float)
+    )
+    raw_codecs = config.get("unsupported_codecs", list(DEFAULT_UNSUPPORTED_CODECS))
+    if isinstance(raw_codecs, str):
+        codec_items = [raw_codecs]
+    elif isinstance(raw_codecs, (list, tuple)):
+        codec_items = raw_codecs
+    else:
+        codec_items = list(DEFAULT_UNSUPPORTED_CODECS)
+    unsupported_codecs = frozenset(
+        str(item).strip().upper() for item in codec_items if str(item).strip()
     )
     if video_pause < 0:
         print("--video-pause 不能为负数，已按 0 处理。")
@@ -420,6 +432,7 @@ def main(argv: list[str] | None = None) -> int:
         config["sprite_index"] = sprite_index
         config["sprite_window"] = sprite_window
         config["video_pause"] = video_pause
+        config["unsupported_codecs"] = sorted(unsupported_codecs)
         save_config(config_path, config)
         markers = collect_all_failures(cache_client, cache_folder, source_base)
         if not markers:
@@ -453,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
             sprite_min_duration=sprite_min_duration,
             sprite_index=sprite_index,
             sprite_window=sprite_window,
+            unsupported_codecs=unsupported_codecs,
         )
         if args.dry_run:
             interactive_retry(ctx, markers, limit=args.limit, list_only=True)
@@ -499,7 +513,7 @@ def main(argv: list[str] | None = None) -> int:
         print_run_summary(
             server, cache_server, cache_folder, source_folder,
             percent, rate, width, jobs, mode, sprite_grid, sprite_width,
-            sprite_min_duration,
+            sprite_min_duration, video_pause,
         )
         try:
             choice = input("按 Enter 开始刮削，输入 m 重新选择文件夹：").strip().lower()
@@ -522,13 +536,13 @@ def main(argv: list[str] | None = None) -> int:
             print_run_summary(
                 server, cache_server, cache_folder, source_folder,
                 percent, rate, width, jobs, mode, sprite_grid, sprite_width,
-                sprite_min_duration,
+                sprite_min_duration, video_pause,
             )
     else:
         print_run_summary(
             server, cache_server, cache_folder, source_folder,
             percent, rate, width, jobs, mode, sprite_grid, sprite_width,
-            sprite_min_duration,
+            sprite_min_duration, video_pause,
         )
 
     # 缓存根目录可能还没创建：逐级建好（WebDAV 的 MKCOL 不会自动建父目录）
@@ -561,6 +575,7 @@ def main(argv: list[str] | None = None) -> int:
             "sprite_index": sprite_index,
             "sprite_window": sprite_window,
             "video_pause": video_pause,
+            "unsupported_codecs": sorted(unsupported_codecs),
             "probe_timeout": probe_timeout,
             "extract_timeout": extract_timeout,
             "stall_timeout": stall_timeout,
@@ -600,6 +615,7 @@ def main(argv: list[str] | None = None) -> int:
             sprite_index=sprite_index,
             sprite_window=sprite_window,
             video_pause=video_pause,
+            unsupported_codecs=unsupported_codecs,
         )
     except KeyboardInterrupt:
         runtime.cancel_running()
@@ -624,11 +640,18 @@ def main(argv: list[str] | None = None) -> int:
         if stats.skipped_short
         else ""
     )
+    unsupported_note = (
+        f"   {dim('编码不支持跳过')} {stats.skipped_unsupported}"
+        if stats.skipped_unsupported
+        else ""
+    )
+    average = stats.average_seconds()
+    average_note = f"   平均 {average:.1f}s/视频（{stats.timed} 个）" if stats.timed else ""
     print(
         f"  {green('新增')} {stats.generated}   {dim('已存在')} {stats.skipped}   "
         f"{dim('失败跳过')} {stats.skipped_failed}   {yellow('本次失败')} {stats.failed}   "
         f"{dim('删除无效文件')} {stats.removed}   {dim('文件夹')} {stats.folders}"
-        f"{short_note}"
+        f"{short_note}{unsupported_note}{average_note}"
     )
     print(f"  {dim('缓存根')}  {display_url(cache_folder)}")
     hr("═")
@@ -637,6 +660,16 @@ def main(argv: list[str] | None = None) -> int:
         f"失败跳过 {stats.skipped_failed} · 本次失败 {stats.failed} · "
         f"删除无效文件 {stats.removed} · 文件夹 {stats.folders}"
         + (f" · 时长不足跳过 {stats.skipped_short}" if stats.skipped_short else "")
+        + (
+            f" · 编码不支持跳过 {stats.skipped_unsupported}"
+            if stats.skipped_unsupported
+            else ""
+        )
+        + (
+            f" · 平均 {stats.average_seconds():.1f}s/视频"
+            if stats.timed
+            else ""
+        )
         + ("（dry-run）" if args.dry_run else "")
     )
     if args.dry_run:
@@ -685,6 +718,7 @@ def main(argv: list[str] | None = None) -> int:
                     sprite_min_duration=sprite_min_duration,
                     sprite_index=sprite_index,
                     sprite_window=sprite_window,
+                    unsupported_codecs=unsupported_codecs,
                 )
                 interactive_retry(ctx, collect_all_failures(cache_client, cache_folder, source_base))
     if runtime.log_path:

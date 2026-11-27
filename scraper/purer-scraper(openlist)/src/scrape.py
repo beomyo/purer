@@ -46,6 +46,8 @@ from .console import (
 )
 from .constants import (
     AVI_SAFE_DURATION,
+    DEFAULT_UNSUPPORTED_CODECS,
+    DEFAULT_VIDEO_PAUSE,
     AVI_SAFE_POSITIONS,
     DEFAULT_SPRITE_MIN_DURATION,
     DEFAULT_SPRITE_WIDTH,
@@ -62,7 +64,7 @@ from .constants import (
     STALL_TIMEOUT,
     WINDOW_BYTES,
 )
-from .errors import VideoError, VideoSkipped, failure_label
+from .errors import VideoError, VideoSkipped, VideoUnsupported, failure_label
 from .failure_report import collect_failure_details, log_failure_details
 from .ffmpeg import extract_frame, probe_duration
 from .httpcache import start_cache_proxy
@@ -108,12 +110,15 @@ class Stats:
     skipped: int = 0
     skipped_failed: int = 0
     skipped_short: int = 0
+    skipped_unsupported: int = 0
     failed: int = 0
     recorded: int = 0
     recorded_local: int = 0
     removed: int = 0
     folders: int = 0
     started_at: float = 0.0
+    timed: int = 0
+    total_seconds: float = 0.0
     failures: list[tuple[str, str]] = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -127,18 +132,33 @@ class Stats:
             self.failed += count
             self.failures.append((url, reason))
 
-    def counts(self) -> dict[str, int]:
+    def add_elapsed(self, seconds: float) -> None:
+        """记录一个视频的实际用时，用于动态平均（进度区和结束汇总）。"""
+        if seconds < 0:
+            return
+        with self._lock:
+            self.timed += 1
+            self.total_seconds += float(seconds)
+
+    def average_seconds(self) -> float:
+        with self._lock:
+            return self.total_seconds / self.timed if self.timed else 0.0
+
+    def counts(self) -> dict[str, float | int]:
         with self._lock:
             return {
                 "generated": self.generated,
                 "skipped": self.skipped,
                 "skipped_failed": self.skipped_failed,
                 "skipped_short": self.skipped_short,
+                "skipped_unsupported": self.skipped_unsupported,
                 "failed": self.failed,
                 "recorded": self.recorded,
                 "recorded_local": self.recorded_local,
                 "removed": self.removed,
                 "folders": self.folders,
+                "timed": self.timed,
+                "average": self.total_seconds / self.timed if self.timed else 0.0,
             }
 
 
@@ -671,6 +691,7 @@ def scrape_one_sprite(
     min_duration: float = DEFAULT_SPRITE_MIN_DURATION,
     sprite_index: bool = True,
     sprite_window: bool = True,
+    unsupported_codecs: frozenset[str] | None = None,
     task: TaskProgress | None = None,
 ) -> tuple[str, float | None]:
     """生成雪碧图并上传，返回缓存文件名与时长。
@@ -729,7 +750,12 @@ def scrape_one_sprite(
         and not hls
     ):
         try:
-            avi_info = prepare_avi_info(source_client, video.url, video.size)
+            avi_info = prepare_avi_info(
+                source_client,
+                video.url,
+                video.size,
+                unsupported_codecs,
+            )
         except AviCodecUnsupported as exc:
             avi_codec_error = exc
         except AviWindowUnavailable:
@@ -862,14 +888,8 @@ def scrape_one_sprite(
             frames = None
 
     if frames is None and avi_codec_error is not None:
-        # ffmpeg 没有对应解码器：快速失败，别再去远程按 75 秒卡死
-        raise VideoError(
-            "noframe",
-            str(avi_codec_error),
-            retryable=False,
-            phase="探测格式",
-            context={"url": video.url},
-        )
+        # 不支持编码：主动跳过，不计失败，也别再去远程按 75 秒卡死
+        raise VideoUnsupported(str(avi_codec_error), codec=avi_codec_error.codec)
     if frames is None and avi_info is not None and source_client is not None and video.size:
         avi_error: str | None = None
         try:
@@ -1030,10 +1050,14 @@ def scrape(
     sprite_min_duration: float = DEFAULT_SPRITE_MIN_DURATION,
     sprite_index: bool = True,
     sprite_window: bool = True,
-    video_pause: float = 0.0,
+    video_pause: float = DEFAULT_VIDEO_PAUSE,
+    unsupported_codecs: frozenset[str] | None = None,
 ) -> Stats:
     runtime.cancel_event.clear()
     stats = Stats(started_at=time.monotonic())
+    skip_codecs = frozenset(
+        (item.upper() for item in (unsupported_codecs or DEFAULT_UNSUPPORTED_CODECS))
+    )
     limiter = RateLimiter(rate)
     source_folder = normalize_folder(source_folder)
     cache_root = normalize_folder(cache_root)
@@ -1056,9 +1080,12 @@ def scrape(
         counts = stats.counts()
         elapsed = int(time.monotonic() - stats.started_at)
         clock = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+        average = counts["average"]
+        avg_text = f"均 {average:.0f}s/个 · " if counts["timed"] else ""
         return (
             f"{progress_bar(done, total)} {done}/{total} · "
-            f"新增 {counts['generated']} · 失败 {counts['failed']} · {clock} · "
+            f"新增 {counts['generated']} · 失败 {counts['failed']} · "
+            f"{avg_text}{clock} · "
             f"{shorten_left(display_url(folder_url), 48)}"
         )
 
@@ -1109,6 +1136,8 @@ def scrape(
                     "TS/M2TS 按码率取数据窗口、AVI(DV) 按定长帧直接读取，本地抽帧"
                     "（--no-sprite-window 可关闭）"
                 )
+            if skip_codecs:
+                log("不支持的编码直接跳过： " + ", ".join(sorted(skip_codecs)))
             if sprite_min_duration > 0:
                 log(
                     f"只处理时长超过 {sprite_min_duration:g}s 的视频"
@@ -1319,6 +1348,7 @@ def scrape(
                         min_duration=sprite_min_duration,
                         sprite_index=sprite_index,
                         sprite_window=sprite_window,
+                        unsupported_codecs=skip_codecs,
                         task=task,
                     )
                 return scrape_one(
@@ -1360,8 +1390,9 @@ def scrape(
                 for future in as_completed(futures):
                     video = futures[future]
                     done_count += 1
-                    show_status(folder, done_count, len(todo))
                     elapsed = time.monotonic() - started_at.get(video.url, time.monotonic())
+                    stats.add_elapsed(elapsed)
+                    show_status(folder, done_count, len(todo))
                     try:
                         filename, duration = future.result()
                         stats.bump(generated=1)
@@ -1394,6 +1425,14 @@ def scrape(
                         # 时长低于雪碧图下限：主动跳过，不写失败标记/本地失败记录，
                         # 下次运行仍会重新判断（调整阈值后即可处理）。
                         stats.bump(skipped_short=1)
+                        server_streak = 0
+                        log(
+                            f"  {dim('已跳过')} [{done_count}/{len(todo)}] {video.name}：{exc}"
+                            f" · 用时 {elapsed:.1f}s"
+                        )
+                    except VideoUnsupported as exc:
+                        # 编码不在支持列表：主动跳过，不计失败、不写失败标记
+                        stats.bump(skipped_unsupported=1)
                         server_streak = 0
                         log(
                             f"  {dim('已跳过')} [{done_count}/{len(todo)}] {video.name}：{exc}"
