@@ -189,6 +189,8 @@ https://host/dav/cache/media/movies/00.10.00_vid.mp4~5x5.jpg
 - 如果 OpenList 返回 500，且日志里是 `waf_agent_protection_triggered` / `REQUEST_BLOCKED`，
   说明 115 的 WAF 把自动请求拦截了（常见于请求量较大之后）。这不是抽帧代码的问题：
   暂停一段时间、降低 `--rate` / `--jobs` 后再试即可。
+- **连续 8 个视频都返回服务器 5xx 时会自动停止本轮**，并在日志里提示检查 115 WAF /
+  OpenList；避免继续把请求打到已经被拦截的接口上。
 - 必须能读到视频时长（MP4 从索引读，其他格式用 ffprobe/缓存），读不到直接失败；
   服务器不支持 Range 时也不做雪碧图。
 - 切换到新格子后，新图上传成功会自动删除同视频的旧格子雪碧图；新图失败时旧图保留。

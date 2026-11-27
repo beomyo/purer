@@ -268,7 +268,7 @@ def read_range_retry(
             return _read_range(client, url, start, length, timeout=timeout, budget=budget)
         except VideoError as exc:
             last = exc
-            if runtime.cancel_event.is_set():
+            if runtime.cancel_event.is_set() or exc.reason in ("auth", "notfound"):
                 raise
             time.sleep(0.5 * (attempt + 1))
     assert last is not None
@@ -310,6 +310,22 @@ def _read_range(
                 data += chunk
     except VideoError:
         raise
+    except request.HTTPError as exc:  # type: ignore[attr-defined]
+        # 5xx 归为服务器错误，便于上层做「连续 5xx 就停止」的保护；
+        # 403 可能是并发/限流造成的瞬时错误，仍按可重试的超时处理。
+        if exc.code >= 500:
+            reason = "server"
+        elif exc.code in (401, 403):
+            reason = "auth" if exc.code == 401 else "timeout"
+        elif exc.code == 404:
+            reason = "notfound"
+        else:
+            reason = "timeout"
+        raise VideoError(
+            reason,
+            f"读取数据失败：HTTP {exc.code}",
+            retryable=reason in ("timeout", "server"),
+        ) from exc
     except Exception as exc:  # noqa: BLE001 - 兜底失败统一按超时上报，保留原始失败原因
         raise VideoError("timeout", f"读取数据失败：{exc}") from exc
     return bytes(data)

@@ -135,6 +135,19 @@ class Stats:
             }
 
 
+def _abort_on_server_errors(streak: int) -> None:
+    """连续多个视频都是服务器 5xx 时停止本轮，避免把 115/OpenList 打到更严重的限流。"""
+    log(
+        red(
+            f"连续 {streak} 个视频都返回服务器 5xx，可能是 115 限流/WAF 拦截或 OpenList 后端故障，"
+            "已停止本轮。"
+        )
+    )
+    log("  建议：等待一段时间后先用单次 Range 请求确认恢复，再降低 --rate / --jobs 重试。")
+    runtime.run_summary = "连续服务器 5xx，已停止"
+    runtime.cancel_running()
+
+
 def _probe_duration_cached(
     ffprobe: str,
     url: str,
@@ -985,6 +998,9 @@ def scrape(
         stack = [source_folder]
         visited: set[tuple[str, str, str]] = set()
         submitted = 0
+        # 连续服务器 5xx 保护：115 WAF/OpenList 故障时不要把所有视频都打一遍
+        server_streak = 0
+        server_streak_limit = 8
 
         log(f"开始刮削：{display_url(source_folder)}")
         log(f"缓存根目录：{display_url(cache_root)}")
@@ -1030,6 +1046,8 @@ def scrape(
         )
 
         while stack:
+            if runtime.cancel_event.is_set():
+                break
             if limit is not None and submitted >= limit:
                 log(f"已达到本次上限 {limit} 个视频，停止扫描。")
                 break
@@ -1254,6 +1272,7 @@ def scrape(
                     try:
                         filename, duration = future.result()
                         stats.bump(generated=1)
+                        server_streak = 0
                         suffix = "" if duration is None else f" · {duration:.0f}s"
                         log(
                             f"  {green('✓')} [{done_count}/{len(todo)}] {filename}{suffix}"
@@ -1282,6 +1301,7 @@ def scrape(
                         # 时长低于雪碧图下限：主动跳过，不写失败标记/本地失败记录，
                         # 下次运行仍会重新判断（调整阈值后即可处理）。
                         stats.bump(skipped_short=1)
+                        server_streak = 0
                         log(
                             f"  {dim('已跳过')} [{done_count}/{len(todo)}] {video.name}：{exc}"
                             f" · 用时 {elapsed:.1f}s"
@@ -1312,6 +1332,13 @@ def scrape(
                                 f" · {display_url(folder)} · {video.url}"
                             )
                             log_failure_details(details)
+                            if reason == "server":
+                                server_streak += 1
+                                if server_streak >= server_streak_limit:
+                                    _abort_on_server_errors(server_streak)
+                                    break
+                            else:
+                                server_streak = 0
                             continue
                         if store is not None:
                             store.record(
@@ -1355,6 +1382,13 @@ def scrape(
                             f" · {display_url(folder)} · {video.url}"
                         )
                         log_failure_details(details)
+                        if reason == "server":
+                            server_streak += 1
+                            if server_streak >= server_streak_limit:
+                                _abort_on_server_errors(server_streak)
+                                break
+                        else:
+                            server_streak = 0
                     except Exception as exc:  # noqa: BLE001
                         stats.add_failure(video.url, str(exc))
                         details = collect_failure_details(
