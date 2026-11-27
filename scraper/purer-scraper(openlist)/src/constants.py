@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = "1.10.0"
+VERSION = "1.11.0"
 USER_AGENT = f"PurerDesktopScraper/{VERSION}"
 
 # ---- 失败标记（与 App 的 CloudMediaCache / CloudThumbnailScraper 一致） ----
@@ -84,6 +84,23 @@ MAX_SPRITE_CELL = 640
 MAX_SPRITE_FRAMES = 25          # 列*行 的上限，避免一次取太多帧
 MAX_SPRITE_BYTES = 1024 * 1024  # 雪碧图上限 1MB；超出时自动降质量/降分辨率
 SPRITE_QUALITIES = (3, 5, 7, 10, 15, 22)
+# ---- 雪碧图快速路径（MP4 索引） ----
+# 115 的文件基本是 mdat 在前、moov 在尾。每帧都让 ffmpeg 重新读一遍 moov
+# 是雪碧图慢的主因；改为读一次索引，按样本表只取每帧需要的字节，再本地抽帧。
+# 任何格式/索引不支持的视频都会自动退回原来的远程抽帧，行为不变。
+SPRITE_INDEX_ENABLED = True
+SPRITE_INDEX_HEAD_BYTES = 1024 * 1024        # 文件头：识别格式/找 faststart 的 moov，也要写进本地文件
+SPRITE_INDEX_TAIL_BYTES = 16 * 1024 * 1024   # moov 常在尾部，默认读最后 16MB
+SPRITE_INDEX_MAX_MOOV = 48 * 1024 * 1024     # moov 超过这个大小就放弃快速路径
+SPRITE_INDEX_MAX_RANGE = 24 * 1024 * 1024    # 单帧「关键帧→目标帧」超过这个大小就回退
+SPRITE_INDEX_MAX_TOTAL = 256 * 1024 * 1024   # 一个视频所有数据段合计的上限
+SPRITE_INDEX_WORKERS = 2                     # 同一文件的并发读取数（服务器超过 2 路会 403）
+SPRITE_INDEX_FRAME_WORKERS = 4               # 本地抽帧的并发数（本地解码很快）
+SPRITE_INDEX_ATTEMPTS = 3                    # 每段数据的读取尝试次数（403 是瞬时错误）
+# 每帧的数据段在目标帧之后多取一点：ffmpeg 的 -ss 输出的是目标时间点之后的第一帧，
+# 只取到目标帧本身会少一帧（B 帧重排后更明显），本地抽帧就会失败。
+SPRITE_INDEX_MARGIN = 1.5                    # 单位：秒
+SPRITE_INDEX_MAX_SKIP = 5.0                  # 本地抽帧结果比目标晚这么多秒就判定失效
 CONFIG_VERSION = 2          # 旧配置没有版本号，用来迁移过时的默认并发
 
 PROPFIND_BODY = (

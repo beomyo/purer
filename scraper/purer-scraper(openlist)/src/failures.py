@@ -344,6 +344,7 @@ class RetryContext:
     sprite_grid: tuple[int, int] = (3, 3)
     sprite_width: int = DEFAULT_SPRITE_WIDTH
     sprite_min_duration: float = DEFAULT_SPRITE_MIN_DURATION
+    sprite_index: bool = True
 
 
 def _select_markers(markers: list[FailedMarker], raw: str) -> list[FailedMarker]:
@@ -399,6 +400,7 @@ def _retry_one(ctx: RetryContext, marker: FailedMarker) -> bool:
                 source_client=ctx.source_client,
                 stall_timeout=ctx.stall_timeout,
                 min_duration=ctx.sprite_min_duration,
+                sprite_index=ctx.sprite_index,
             )
         else:
             filename, duration = scrape_one(

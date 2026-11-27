@@ -11,7 +11,7 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
-from . import runtime
+from . import durations, runtime
 from .cache import (
     cache_listing_with_retry,
     cleanup_stale_sprites,
@@ -57,6 +57,7 @@ from .constants import (
 from .errors import VideoError, VideoSkipped, failure_label
 from .failure_report import collect_failure_details, log_failure_details
 from .ffmpeg import extract_frame, probe_duration
+from .mp4sprite import SpriteIndexUnavailable, prepare_sprite_index
 from .mp4window import extract_frame_window
 from .paths import DEFAULT_FAILED
 from .progress import TaskProgress, TaskTracker
@@ -129,6 +130,32 @@ class Stats:
                 "removed": self.removed,
                 "folders": self.folders,
             }
+
+
+def _probe_duration_cached(
+    ffprobe: str,
+    url: str,
+    token: str | None,
+    insecure: bool,
+    *,
+    cache_url: str,
+    cache_size: int | None,
+    **kwargs,
+) -> float | None:
+    """读时长前先查本地缓存（按 URL + 文件大小），成功后写回。
+
+    远程读一次时长要读索引，常见 5–10 秒；同一文件的时长不会变，重跑时直接用
+    缓存可以省掉这一步。缓存文件损坏或大小变化都会自动失效。
+    """
+    cached = durations.get(cache_url, cache_size)
+    if cached is not None:
+        label = kwargs.get("label")
+        log(f"  {label}：使用缓存的时长 {cached:.0f}s" if label else f"  使用缓存的时长 {cached:.0f}s")
+        return cached
+    value = probe_duration(ffprobe, url, token, insecure, **kwargs)
+    if value is not None:
+        durations.put(cache_url, cache_size, value)
+    return value
 
 
 def scrape_one(
@@ -222,11 +249,13 @@ def scrape_one(
                 log(f"  {video.name}：从 AVI 文件头读取时长 {header_value:.0f}s")
             elif range_ok:
                 try:
-                    duration = probe_duration(
+                    duration = _probe_duration_cached(
                         ffprobe,
                         ffmpeg_url,
                         ffmpeg_token,
                         insecure,
+                        cache_url=video.url,
+                        cache_size=video.size,
                         timeout=current_probe_timeout,
                         label=f"{video.name} 读时长",
                         stall_timeout=stall_timeout,
@@ -617,13 +646,15 @@ def scrape_one_sprite(
     source_client: WebDav | None = None,
     stall_timeout: float = STALL_TIMEOUT,
     min_duration: float = DEFAULT_SPRITE_MIN_DURATION,
+    sprite_index: bool = True,
     task: TaskProgress | None = None,
 ) -> tuple[str, float | None]:
     """生成雪碧图并上传，返回缓存文件名与时长。
 
     与普通缩略图唯一的区别是取帧次数：在视频 10%–95% 区间内均匀取 cols*rows 个
-    时间点（含两端），每帧仍然只做输入端定位（HTTP Range），不会顺序读取整个文件。
-    代价是流量和耗时约为普通缩略图的 cols*rows 倍，因此需要时长；读不到时长时直接失败。
+    时间点（含两端）。优先走 MP4 索引快速路径：只读一次 moov，按样本表只取每帧
+    真正需要的字节，再拼成稀疏本地文件在本地抽帧；格式不支持或索引不完整时退回
+    逐帧远程读取（每帧仍然只做输入端定位，不会顺序读取整个文件）。
     时长不超过 min_duration（默认 300 秒）的视频主动跳过，不计入失败。
     """
     count = cols * rows
@@ -645,20 +676,79 @@ def scrape_one_sprite(
         )
 
     duration: float | None = None
-    if avi and source_client is not None and hasattr(source_client, "probe_avi_header"):
+    frames: list[bytes] | None = None
+
+    # ---- 优先：MP4 索引快速路径（读一次索引，只取各帧所需的字节） ----
+    index_error: str | None = None
+    index_ready = (
+        sprite_index
+        and source_client is not None
+        and bool(video.size)
+        and not avi
+        and not hls
+    )
+    if index_ready:
+        try:
+            index = prepare_sprite_index(source_client, video.url, video.size, task=task)
+            duration = index.duration
+            durations.put(video.url, video.size, duration)
+            if min_duration > 0 and duration <= min_duration:
+                raise VideoSkipped(
+                    f"时长 {duration:.0f}s 未超过雪碧图下限 {min_duration:g}s",
+                    duration=duration,
+                )
+            log(
+                f"  {video.name}：时长 {duration:.0f}s · 已读取 MP4 索引，"
+                "只取各帧所需数据后在本地抽帧"
+            )
+            frames = index.frames(
+                ffmpeg,
+                source_client,
+                video.url,
+                count,
+                cell_width,
+                folder,
+                limiter,
+                extract_timeout=extract_timeout,
+                task=task,
+            )
+        except VideoSkipped:
+            raise
+        except SpriteIndexUnavailable as exc:
+            index_error = str(exc)
+        except VideoError as exc:
+            if runtime.cancel_event.is_set():
+                raise
+            index_error = str(exc)
+        if index_error is not None:
+            log(f"  {video.name}：MP4 索引快速路径不可用（{index_error}），改用远程抽帧")
+            frames = None
+            duration = None
+
+    # ---- 兜底：逐帧远程读取（行为与旧版一致） ----
+    if (
+        duration is None
+        and avi
+        and source_client is not None
+        and hasattr(source_client, "probe_avi_header")
+    ):
         real_avi, header_value = source_client.probe_avi_header(video.url)
         if real_avi:
             duration = header_value
+            if duration:
+                durations.put(video.url, video.size, duration)
     if duration is None:
         if task is not None:
             task.set_phase("读时长")
 
         def probe() -> float | None:
-            return probe_duration(
+            return _probe_duration_cached(
                 ffprobe,
                 cache_bust(video.url),
                 token,
                 insecure,
+                cache_url=video.url,
+                cache_size=video.size,
                 timeout=probe_timeout,
                 label=f"{video.name} 读时长",
                 stall_timeout=stall_timeout,
@@ -680,55 +770,61 @@ def scrape_one_sprite(
             duration=duration,
         )
 
-    positions = sprite_positions(duration, count)
     interval = duration * (SPRITE_END - SPRITE_START) / max(1, count - 1)
-    log(
-        f"  {video.name}：时长 {duration:.0f}s · 在 10%–95% 区间每 {interval:.1f}s 取一帧 · "
-        f"单格上限 {cell_width}px"
-    )
-    frames: list[bytes] = []
-    if task is not None:
-        task.set_phase("取帧", steps=count)
-    for index, position in enumerate(positions, 1):
-        if runtime.cancel_event.is_set():
-            raise VideoError("timeout", "已取消", phase="取帧")
+    if frames is None:
+        positions = sprite_positions(duration, count)
+        log(
+            f"  {video.name}：时长 {duration:.0f}s · 在 10%–95% 区间每 {interval:.1f}s 取一帧 · "
+            f"单格上限 {cell_width}px"
+        )
+        frames = []
         if task is not None:
-            task.advance(index, count)
+            task.set_phase("取帧", steps=count)
+        for index, position in enumerate(positions, 1):
+            if runtime.cancel_event.is_set():
+                raise VideoError("timeout", "已取消", phase="取帧")
+            if task is not None:
+                task.advance(index, count)
 
-        def grab(position: float = position, index: int = index) -> bytes:
-            limiter.wait(folder)
-            return extract_frame(
-                ffmpeg,
-                cache_bust(video.url),
-                position,
-                cell_width,
-                token,
-                insecure,
-                timeout=extract_timeout,
-                seek_modes=(True,),
-                label=f"{video.name} 第 {index}/{count} 帧",
-                stall_timeout=stall_timeout,
-                task=task,
-            )
+            def grab(position: float = position, index: int = index) -> bytes:
+                limiter.wait(folder)
+                return extract_frame(
+                    ffmpeg,
+                    cache_bust(video.url),
+                    position,
+                    cell_width,
+                    token,
+                    insecure,
+                    timeout=extract_timeout,
+                    seek_modes=(True,),
+                    label=f"{video.name} 第 {index}/{count} 帧",
+                    stall_timeout=stall_timeout,
+                    task=task,
+                )
 
-        try:
-            frames.append(retry(f"雪碧图 {video.name} 第 {index}/{count} 帧", retries, grab))
-        except VideoError as exc:
-            exc.context.setdefault("frame_index", index)
-            exc.context.setdefault("frame_count", count)
-            exc.context.setdefault("frame_position", round(position, 3))
-            # 卡死（不可重试）立即放弃整个雪碧图，不再为后面每一帧重复等超时
-            if exc.reason in ("notfound", "auth", "noframe") or not exc.retryable:
-                raise
-            wrapped = VideoError(
-                exc.reason,
-                f"第 {index}/{count} 帧取帧失败（{exc}）",
-                retryable=exc.retryable,
-                phase=f"取帧 {index}/{count}",
-                context=exc.context,
-            )
-            wrapped.attempts = exc.attempts
-            raise wrapped from exc
+            try:
+                frames.append(retry(f"雪碧图 {video.name} 第 {index}/{count} 帧", retries, grab))
+            except VideoError as exc:
+                exc.context.setdefault("frame_index", index)
+                exc.context.setdefault("frame_count", count)
+                exc.context.setdefault("frame_position", round(position, 3))
+                # 卡死（不可重试）立即放弃整个雪碧图，不再为后面每一帧重复等超时
+                if exc.reason in ("notfound", "auth", "noframe") or not exc.retryable:
+                    raise
+                wrapped = VideoError(
+                    exc.reason,
+                    f"第 {index}/{count} 帧取帧失败（{exc}）",
+                    retryable=exc.retryable,
+                    phase=f"取帧 {index}/{count}",
+                    context=exc.context,
+                )
+                wrapped.attempts = exc.attempts
+                raise wrapped from exc
+    else:
+        log(
+            f"  {video.name}：时长 {duration:.0f}s · 索引快速路径已取到 {len(frames)} 帧"
+            f"（每 {interval:.1f}s 一帧）"
+        )
 
     if task is not None:
         task.set_phase("拼接")
@@ -764,7 +860,6 @@ def scrape_one_sprite(
     log(f"  {video.name}：雪碧图完成（{len(sprite) // 1024}KB）")
     return filename, duration
 
-
 def scrape(
     source_client: WebDav,
     cache_client: WebDav,
@@ -792,6 +887,7 @@ def scrape(
     sprite_grid: tuple[int, int] = (3, 3),
     sprite_width: int = DEFAULT_SPRITE_WIDTH,
     sprite_min_duration: float = DEFAULT_SPRITE_MIN_DURATION,
+    sprite_index: bool = True,
 ) -> Stats:
     runtime.cancel_event.clear()
     stats = Stats(started_at=time.monotonic())
@@ -849,6 +945,11 @@ def scrape(
                 f"限速 {rate:g} 次/秒（按文件夹）· 并发 {jobs}"
             )
             log("提示：雪碧图需要对每个视频取多帧，流量和耗时约为普通缩略图的多倍。")
+            if sprite_index:
+                log(
+                    "MP4 视频会先读一次索引，只取每帧所需数据后在本地抽帧"
+                    "（--no-sprite-index 可关闭）"
+                )
             if sprite_min_duration > 0:
                 log(
                     f"只处理时长超过 {sprite_min_duration:g}s 的视频"
@@ -1055,6 +1156,7 @@ def scrape(
                         source_client=source_client,
                         stall_timeout=stall_timeout,
                         min_duration=sprite_min_duration,
+                        sprite_index=sprite_index,
                         task=task,
                     )
                 return scrape_one(

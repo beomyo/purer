@@ -74,3 +74,6 @@ app.*.map.json
 /scraper/**/scraper.log
 /scraper/**/__pycache__/
 
+
+# scraper runtime cache
+scraper/*/duration_cache.json

@@ -27,6 +27,7 @@ from .constants import (
     MIN_RATE,
     MIN_SPRITE_CELL,
     PROBE_TIMEOUT,
+    SPRITE_INDEX_ENABLED,
     STALL_TIMEOUT,
     VERSION,
     WINDOW_BYTES,
@@ -106,6 +107,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "雪碧图只处理时长超过该秒数的视频，默认 "
             f"{DEFAULT_SPRITE_MIN_DURATION:g}（缩略图模式不限制）；0 表示不限制"
+        ),
+    )
+    parser.add_argument(
+        "--no-sprite-index", action="store_true",
+        help=(
+            "关闭雪碧图的 MP4 索引快速路径：默认只读一次索引，按样本表取每帧所需字节后"
+            "本地抽帧；关闭后恢复逐帧远程读取"
         ),
     )
     parser.add_argument(
@@ -333,6 +341,10 @@ def main(argv: list[str] | None = None) -> int:
     source_token = source_token_bytes.decode("ascii") if source_token_bytes else None
     retries = max(0, args.retries)
     window_fallback = not args.no_window_fallback
+    stored_index = config.get("sprite_index", SPRITE_INDEX_ENABLED)
+    sprite_index = (not args.no_sprite_index) and (
+        stored_index if isinstance(stored_index, bool) else SPRITE_INDEX_ENABLED
+    )
 
     cache_folder = args.cache_folder or config_text(config, "cache_folder")
 
@@ -353,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
         config["sprite_grid"] = f"{sprite_grid[0]}x{sprite_grid[1]}"
         config["sprite_width"] = sprite_width
         config["sprite_min_duration"] = sprite_min_duration
+        config["sprite_index"] = sprite_index
         save_config(config_path, config)
         markers = collect_all_failures(cache_client, cache_folder, source_base)
         if not markers:
@@ -384,6 +397,7 @@ def main(argv: list[str] | None = None) -> int:
             sprite_grid=sprite_grid,
             sprite_width=sprite_width,
             sprite_min_duration=sprite_min_duration,
+            sprite_index=sprite_index,
         )
         if args.dry_run:
             interactive_retry(ctx, markers, limit=args.limit, list_only=True)
@@ -489,6 +503,7 @@ def main(argv: list[str] | None = None) -> int:
             "sprite_grid": f"{sprite_grid[0]}x{sprite_grid[1]}",
             "sprite_width": sprite_width,
             "sprite_min_duration": sprite_min_duration,
+            "sprite_index": sprite_index,
             "probe_timeout": probe_timeout,
             "extract_timeout": extract_timeout,
             "stall_timeout": stall_timeout,
@@ -525,6 +540,7 @@ def main(argv: list[str] | None = None) -> int:
             sprite_grid=sprite_grid,
             sprite_width=sprite_width,
             sprite_min_duration=sprite_min_duration,
+            sprite_index=sprite_index,
         )
     except KeyboardInterrupt:
         runtime.cancel_running()
@@ -608,6 +624,7 @@ def main(argv: list[str] | None = None) -> int:
                     sprite_grid=sprite_grid,
                     sprite_width=sprite_width,
                     sprite_min_duration=sprite_min_duration,
+                    sprite_index=sprite_index,
                 )
                 interactive_retry(ctx, collect_all_failures(cache_client, cache_folder, source_base))
     print(f"日志：{runtime.log_path}" if runtime.log_path else "日志：未写入文件")
