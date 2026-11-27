@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = "1.14.1"
+VERSION = "1.15.0"
 USER_AGENT = f"PurerDesktopScraper/{VERSION}"
 
 # ---- 失败标记（与 App 的 CloudMediaCache / CloudThumbnailScraper 一致） ----
@@ -113,8 +113,6 @@ SPRITE_TS_ATTEMPTS = 3                       # 每个窗口的读取尝试次数
 SPRITE_TS_DECODE_TIMEOUT = 60.0              # 单个窗口本地解码的超时
 # 默认跳过的不支持编码（大写 fourcc）。AVI 头里识别到就直接跳过，不计失败。
 DEFAULT_UNSUPPORTED_CODECS = ("CUVC",)
-# 每启动一个视频至少间隔多少秒；115 风控敏感，默认固定为保守值。
-DEFAULT_VIDEO_PAUSE = 30.0
 # ---- 雪碧图 AVI(DV) 快速路径 ----
 # DV AVI 的帧是定长的（NTSC 120000 / PAL 144000 字节），按字节窗口找到 00db 块
 # 后直接本地解码；CUVC 等 ffmpeg 没有解码器的编码则快速失败，不再远程卡死。

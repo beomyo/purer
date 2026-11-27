@@ -120,7 +120,6 @@ def print_run_summary(
     sprite_grid: tuple[int, int] = (3, 3),
     sprite_width: int = DEFAULT_SPRITE_WIDTH,
     sprite_min_duration: float = 0.0,
-    video_pause: float = 0.0,
 ) -> None:
     print()
     hr("═")
@@ -142,8 +141,6 @@ def print_run_summary(
         )
     else:
         params = f"取帧 {percent:g}% · 限速 {rate:g} 次/秒 · 缩略图 {width}px · 并发 {jobs}"
-    if video_pause > 0:
-        params += f" · 视频间隔 {video_pause:g}s"
     print(f"  {dim('参数')}      {params}")
     hr("═")
     print()

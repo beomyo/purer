@@ -34,7 +34,6 @@ from .constants import (
     DEFAULT_SPRITE_MIN_DURATION,
     DEFAULT_SPRITE_WIDTH,
     DEFAULT_UNSUPPORTED_CODECS,
-    DEFAULT_VIDEO_PAUSE,
     EXTRACT_TIMEOUT,
     MAX_JOBS,
     MAX_RATE,
@@ -137,13 +136,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "关闭雪碧图的 MP4 索引快速路径：默认只读一次索引，按样本表取每帧所需字节后"
             "本地抽帧；关闭后恢复逐帧远程读取"
-        ),
-    )
-    parser.add_argument(
-        "--video-pause", type=float, default=None,
-        help=(
-            "每启动一个视频至少间隔多少秒（默认 0）。115 风控敏感时建议 30–60，"
-            "配合 --jobs 1 --rate 1 使用"
         ),
     )
     parser.add_argument(
@@ -391,11 +383,6 @@ def main(argv: list[str] | None = None) -> int:
     sprite_window = (not args.no_sprite_window) and (
         stored_window if isinstance(stored_window, bool) else SPRITE_TS_WINDOW_ENABLED
     )
-    video_pause = (
-        args.video_pause
-        if args.video_pause is not None
-        else config_number(config, "video_pause", DEFAULT_VIDEO_PAUSE, float)
-    )
     raw_codecs = config.get("unsupported_codecs", list(DEFAULT_UNSUPPORTED_CODECS))
     if isinstance(raw_codecs, str):
         codec_items = [raw_codecs]
@@ -406,9 +393,6 @@ def main(argv: list[str] | None = None) -> int:
     unsupported_codecs = frozenset(
         str(item).strip().upper() for item in codec_items if str(item).strip()
     )
-    if video_pause < 0:
-        print("--video-pause 不能为负数，已按 0 处理。")
-        video_pause = 0.0
 
     cache_folder = args.cache_folder or config_text(config, "cache_folder")
 
@@ -431,7 +415,6 @@ def main(argv: list[str] | None = None) -> int:
         config["sprite_min_duration"] = sprite_min_duration
         config["sprite_index"] = sprite_index
         config["sprite_window"] = sprite_window
-        config["video_pause"] = video_pause
         config["unsupported_codecs"] = sorted(unsupported_codecs)
         save_config(config_path, config)
         markers = collect_all_failures(cache_client, cache_folder, source_base)
@@ -513,7 +496,7 @@ def main(argv: list[str] | None = None) -> int:
         print_run_summary(
             server, cache_server, cache_folder, source_folder,
             percent, rate, width, jobs, mode, sprite_grid, sprite_width,
-            sprite_min_duration, video_pause,
+            sprite_min_duration,
         )
         try:
             choice = input("按 Enter 开始刮削，输入 m 重新选择文件夹：").strip().lower()
@@ -536,13 +519,13 @@ def main(argv: list[str] | None = None) -> int:
             print_run_summary(
                 server, cache_server, cache_folder, source_folder,
                 percent, rate, width, jobs, mode, sprite_grid, sprite_width,
-                sprite_min_duration, video_pause,
+                sprite_min_duration,
             )
     else:
         print_run_summary(
             server, cache_server, cache_folder, source_folder,
             percent, rate, width, jobs, mode, sprite_grid, sprite_width,
-            sprite_min_duration, video_pause,
+            sprite_min_duration,
         )
 
     # 缓存根目录可能还没创建：逐级建好（WebDAV 的 MKCOL 不会自动建父目录）
@@ -574,7 +557,6 @@ def main(argv: list[str] | None = None) -> int:
             "sprite_min_duration": sprite_min_duration,
             "sprite_index": sprite_index,
             "sprite_window": sprite_window,
-            "video_pause": video_pause,
             "unsupported_codecs": sorted(unsupported_codecs),
             "probe_timeout": probe_timeout,
             "extract_timeout": extract_timeout,
@@ -614,7 +596,6 @@ def main(argv: list[str] | None = None) -> int:
             sprite_min_duration=sprite_min_duration,
             sprite_index=sprite_index,
             sprite_window=sprite_window,
-            video_pause=video_pause,
             unsupported_codecs=unsupported_codecs,
         )
     except KeyboardInterrupt:

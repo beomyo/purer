@@ -47,7 +47,6 @@ from .console import (
 from .constants import (
     AVI_SAFE_DURATION,
     DEFAULT_UNSUPPORTED_CODECS,
-    DEFAULT_VIDEO_PAUSE,
     AVI_SAFE_POSITIONS,
     DEFAULT_SPRITE_MIN_DURATION,
     DEFAULT_SPRITE_WIDTH,
@@ -1050,7 +1049,6 @@ def scrape(
     sprite_min_duration: float = DEFAULT_SPRITE_MIN_DURATION,
     sprite_index: bool = True,
     sprite_window: bool = True,
-    video_pause: float = DEFAULT_VIDEO_PAUSE,
     unsupported_codecs: frozenset[str] | None = None,
 ) -> Stats:
     runtime.cancel_event.clear()
@@ -1090,23 +1088,6 @@ def scrape(
         )
 
     tracker = TaskTracker(board, summary_line)
-
-    # 新视频起播节奏：等待发生在工作线程里，主线程仍能及时处理已完成的任务、
-    # 刷新进度和平均用时（之前放在提交循环里会让进度停住）。
-    pace_lock = threading.Lock()
-    next_video_at = 0.0
-
-    def pace_video_start() -> None:
-        nonlocal next_video_at
-        if video_pause <= 0:
-            return
-        with pace_lock:
-            now = time.monotonic()
-            start = max(now, next_video_at)
-            next_video_at = start + video_pause
-        delay = start - now
-        if delay > 0:
-            runtime.cancel_event.wait(delay)
 
     def show_status(folder_url: str, done: int, total: int) -> None:
         with state_lock:
@@ -1324,7 +1305,6 @@ def scrape(
             started_at: dict[str, float] = {}
 
             def handle(video: Resource) -> tuple[str, float | None]:
-                pace_video_start()
                 started_at[video.url] = time.monotonic()
                 task = tracker.new_task(video.name)
                 try:
