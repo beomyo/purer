@@ -22,6 +22,7 @@ from .cache import (
 from .console import bold, dim, green, hr, log, log_failure, log_success, red, yellow
 from .constants import (
     DEFAULT_SPRITE_MIN_DURATION,
+    DEFAULT_SPRITE_MIN_SECONDS,
     DEFAULT_SPRITE_WIDTH,
     EXTRACT_TIMEOUT,
     FAILURE_NAME,
@@ -344,6 +345,7 @@ class RetryContext:
     sprite_grid: tuple[int, int] = (3, 3)
     sprite_width: int = DEFAULT_SPRITE_WIDTH
     sprite_min_duration: float = DEFAULT_SPRITE_MIN_DURATION
+    sprite_min_seconds: float = DEFAULT_SPRITE_MIN_SECONDS
     sprite_index: bool = True
     sprite_window: bool = True
     unsupported_codecs: frozenset[str] | None = None
@@ -402,6 +404,7 @@ def _retry_one(ctx: RetryContext, marker: FailedMarker) -> bool:
                 source_client=ctx.source_client,
                 stall_timeout=ctx.stall_timeout,
                 min_duration=ctx.sprite_min_duration,
+                min_seconds=ctx.sprite_min_seconds,
                 sprite_index=ctx.sprite_index,
                 sprite_window=ctx.sprite_window,
                 unsupported_codecs=ctx.unsupported_codecs,

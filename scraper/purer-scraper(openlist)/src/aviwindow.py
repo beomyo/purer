@@ -33,6 +33,7 @@ from .constants import (
 from .errors import VideoError, is_upstream_block
 from .ffmpeg import _run_capture
 from .mp4window import read_range_retry
+from .pacing import SpritePacer
 from .progress import TaskProgress
 from .rate import RateLimiter
 from .urls import sprite_positions
@@ -245,8 +246,12 @@ def extract_dv_frames(
     extract_timeout: float = EXTRACT_TIMEOUT,
     serial: bool = False,
     task: TaskProgress | None = None,
+    pacer: SpritePacer | None = None,
 ) -> list[bytes]:
-    """按字节窗口从 DV AVI 取 count 帧；serial=True 时只用一个工作线程。"""
+    """按字节窗口从 DV AVI 取 count 帧；serial=True 时只用一个工作线程。
+
+    pacer 用来把各窗口的读取均匀铺开（见 pacing.py）。
+    """
     if duration <= 0:
         raise AviWindowUnavailable("时长为零")
     positions = sprite_positions(duration, count)
@@ -260,6 +265,8 @@ def extract_dv_frames(
     def work(index: int) -> tuple[int, bytes]:
         if runtime.cancel_event.is_set():
             raise VideoError("timeout", "已取消", phase="取 DV 帧")
+        if pacer is not None:
+            pacer.wait_for(index)
         target = info.movi_start + int(span * positions[index] / duration)
         last_error: Exception | None = None
         for attempt, size in enumerate((window_bytes, window_bytes * 2)):

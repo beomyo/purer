@@ -51,6 +51,7 @@ from .constants import (
     LARGE_VIDEO_BYTES,
     AVI_SAFE_POSITIONS,
     DEFAULT_SPRITE_MIN_DURATION,
+    DEFAULT_SPRITE_MIN_SECONDS,
     DEFAULT_SPRITE_WIDTH,
     EXTRACT_TIMEOUT,
     GOOD_THUMBNAIL_BYTES,
@@ -77,6 +78,7 @@ from .ffmpeg import extract_frame, probe_duration
 from .httpcache import start_cache_proxy
 from .mp4sprite import SpriteIndexUnavailable, prepare_sprite_index
 from .mp4window import extract_frame_window
+from .pacing import SpritePacer
 from .tswindow import TsWindowUnavailable, extract_ts_frames, prepare_ts_window
 from .paths import DEFAULT_FAILED
 from .progress import TaskProgress, TaskTracker
@@ -824,6 +826,7 @@ def scrape_one_sprite(
     source_client: WebDav | None = None,
     stall_timeout: float = STALL_TIMEOUT,
     min_duration: float = DEFAULT_SPRITE_MIN_DURATION,
+    min_seconds: float = DEFAULT_SPRITE_MIN_SECONDS,
     sprite_index: bool = True,
     sprite_window: bool = True,
     unsupported_codecs: frozenset[str] | None = None,
@@ -838,9 +841,18 @@ def scrape_one_sprite(
     真正需要的字节，再拼成稀疏本地文件在本地抽帧；格式不支持或索引不完整时退回
     逐帧远程读取（每帧仍然只做输入端定位，不会顺序读取整个文件）。
     时长不超过 min_duration（默认 300 秒）的视频主动跳过，不计入失败。
+    min_seconds 控制取帧节奏：每个视频至少处理这么久（默认 90 秒），各帧的上游
+    读取按时间均匀铺开，避免 115 风控；0 表示不限制。
     """
     count = cols * rows
-    log(f"  {cyan('▶')} {video.name}：开始生成雪碧图（{cols}x{rows}，{count} 帧）")
+    # 取帧节奏：每个视频至少 min_seconds 秒，各帧读取按时间均匀铺开（防止 115 风控）
+    pacer = SpritePacer(count, min_seconds)
+    pace_note = (
+        f"，每 {min_seconds / count:.1f}s 一帧、至少 {min_seconds:g}s"
+        if min_seconds > 0
+        else ""
+    )
+    log(f"  {cyan('▶')} {video.name}：开始生成雪碧图（{cols}x{rows}，{count} 帧{pace_note}）")
     large_video = bool(video.size and video.size >= LARGE_VIDEO_BYTES)
     if large_video:
         log(
@@ -945,6 +957,7 @@ def scrape_one_sprite(
                 extract_timeout=extract_timeout,
                 serial=large_video,
                 task=task,
+                pacer=pacer,
             )
         except VideoSkipped:
             raise
@@ -1025,6 +1038,7 @@ def scrape_one_sprite(
                 extract_timeout=extract_timeout,
                 serial=large_video,
                 task=task,
+                pacer=pacer,
             )
         except TsWindowUnavailable as exc:
             ts_error = str(exc)
@@ -1057,6 +1071,7 @@ def scrape_one_sprite(
                 extract_timeout=extract_timeout,
                 serial=large_video,
                 task=task,
+                pacer=pacer,
             )
         except AviWindowUnavailable as exc:
             avi_error = str(exc)
@@ -1093,6 +1108,7 @@ def scrape_one_sprite(
                     raise VideoError("timeout", "已取消", phase="取帧")
                 if task is not None:
                     task.advance(index, count)
+                pacer.wait_for(index - 1)
 
                 def grab(position: float = position, index: int = index) -> bytes:
                     limiter.wait(folder)
@@ -1230,6 +1246,9 @@ def scrape_one_sprite(
                 existing_thumbnails.add(thumb_name)
         except Exception as exc:  # noqa: BLE001 - 雪碧图已经上传成功，缩略图失败下次再补
             log(f"  {video.name}：缩略图生成失败（{exc}），下次运行会从雪碧图补上")
+    waited = pacer.finish()
+    if waited > 0.5:
+        log(f"  {video.name}：按每视频至少 {min_seconds:g}s 的节奏等待 {waited:.1f}s")
     return filename, duration
 
 def scrape(
@@ -1259,6 +1278,7 @@ def scrape(
     sprite_grid: tuple[int, int] = (3, 3),
     sprite_width: int = DEFAULT_SPRITE_WIDTH,
     sprite_min_duration: float = DEFAULT_SPRITE_MIN_DURATION,
+    sprite_min_seconds: float = DEFAULT_SPRITE_MIN_SECONDS,
     sprite_index: bool = True,
     sprite_window: bool = True,
     unsupported_codecs: frozenset[str] | None = None,
@@ -1331,6 +1351,11 @@ def scrape(
                 f"雪碧图 {cols}x{rows}（{cols * rows} 帧）· 单格上限 {sprite_width}px · "
                 f"限速 {rate:g} 次/秒（按文件夹）· 并发 {jobs}"
             )
+            if sprite_min_seconds > 0:
+                log(
+                    f"取帧节奏：每个视频至少 {sprite_min_seconds:g}s，帧读取按时间均匀铺开"
+                    "（--sprite-min-seconds 调整，0 表示关闭）"
+                )
             log(
                 "同时写入普通缩略图（取雪碧图最后一帧）；已有雪碧图但缺缩略图时会自动补上。"
             )
@@ -1610,6 +1635,7 @@ def scrape(
                         source_client=source_client,
                         stall_timeout=stall_timeout,
                         min_duration=sprite_min_duration,
+                        min_seconds=sprite_min_seconds,
                         sprite_index=sprite_index,
                         sprite_window=sprite_window,
                         unsupported_codecs=skip_codecs,
