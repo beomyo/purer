@@ -7,7 +7,7 @@ import 'package:flutter/widgets.dart';
 
 // The screen-space band in which sprite animations are allowed to play. The
 // browser page keeps it up to date from the scroll position: it is a band
-// centred on the visible list (narrow, by default 20% of the list), stretched
+// centred on the visible list (narrow, by default 5% of the list), stretched
 // towards the list start/end when the user is already there, so the first and
 // last rows can play as well. `null` means no restriction (100%).
 final ValueNotifier<Rect?> cloudSpritePlaybackBand = ValueNotifier(null);
@@ -25,14 +25,60 @@ ValueNotifier<double> cloudSpriteProgressNotifier(String uri) {
   return _spriteProgressNotifiers.putIfAbsent(uri, () => ValueNotifier<double>(0));
 }
 
+// One clock for every sheet animation on screen: a tile switches to its next
+// frame on a tick of this clock, so all animations switch at the same
+// instants. Each tile used to run its own timer from the moment it was built,
+// which left neighbouring tiles on different phases (and a tile scrolled in
+// later started on a phase of its own) - the grid looked chaotic. The frame
+// itself still differs per video, since the sheets hold different cell counts.
+class _CloudSpriteClock {
+  final ValueNotifier<int> tick = ValueNotifier<int>(0);
+  Timer? _timer;
+  double _fps = 2;
+  int _refs = 0;
+
+  void attach(double fps) {
+    _refs++;
+    setSpeed(fps);
+    if (_timer == null) _start();
+  }
+
+  void detach() {
+    if (_refs > 0) _refs--;
+    if (_refs > 0) return;
+    _timer?.cancel();
+    _timer = null;
+    tick.value = 0;
+  }
+
+  void setSpeed(double fps) {
+    final value = fps > 0 ? fps : 2.0;
+    if (value == _fps) return;
+    _fps = value;
+    if (_timer == null) return;
+    // a new rate starts a new cycle, so every tile begins at frame 0 together
+    tick.value = 0;
+    _start();
+  }
+
+  void _start() {
+    _timer?.cancel();
+    final micros = (1000000 / _fps).round();
+    _timer = Timer.periodic(Duration(microseconds: micros < 1000 ? 1000 : micros), (_) => tick.value++);
+  }
+}
+
+final _CloudSpriteClock _spriteClock = _CloudSpriteClock();
+
 // A tile-sized looping animation of a cloud video, cut straight from its
 // downloaded sprite sheet (one JPEG holding a `cols x rows` grid of frames).
 //
 // The sheet is decoded once, then every frame is drawn by a painter straight
 // from it (`Canvas.drawImageRect`), so playing the animation allocates nothing
-// and does not re-encode anything. The sheet and the ticker are owned by the
-// widget, so scrolling a tile out of the list releases both: a sheet no longer
-// on screen does not keep animating in the background.
+// and does not re-encode anything. The sheet is owned by the widget, so
+// scrolling a tile out of the list releases it: a sheet no longer on screen
+// does not keep animating in the background. The shared clock keeps the
+// remaining tiles switching their frames together.
 class CloudSpriteAnimation extends StatefulWidget {
   final String uri;
   // cells are read row by row or column by column, matching how the sheet was
@@ -80,7 +126,6 @@ class _CloudSpriteAnimationState extends State<CloudSpriteAnimation> {
   // first played cell of the sheet and how many cells are played in a loop
   int _startIndex = 0;
   int _usable = 0;
-  Timer? _timer;
   final ValueNotifier<int> _frame = ValueNotifier(0);
   bool _loading = true;
   int _loadToken = 0;
@@ -91,30 +136,35 @@ class _CloudSpriteAnimationState extends State<CloudSpriteAnimation> {
     // a tile rebuilt for a revisited video must not show the progress its
     // previous animation happened to stop at
     cloudSpriteProgressNotifier(widget.uri).value = 0;
-    _restartTimer();
+    _spriteClock.attach(widget.speed);
+    _spriteClock.tick.addListener(_onClockTick);
     _load();
   }
 
-  // A periodic timer at the animation's own rate: a vsync ticker woke every
-  // visible tile up on every display frame (60-120 Hz) even at the default 2 fps.
-  void _restartTimer() {
-    _timer?.cancel();
-    final fps = widget.speed <= 0 ? 2.0 : widget.speed;
-    final micros = (1000000 / fps).round();
-    _timer = Timer.periodic(Duration(microseconds: micros < 1000 ? 1000 : micros), (_) => _tick());
-  }
-
-  void _tick() {
+  // A shared clock tick, at the animation's rate: a vsync ticker woke every
+  // visible tile up on every display frame (60-120 Hz) even at the default
+  // 2 fps, and a per-tile timer let the tiles drift apart.
+  void _onClockTick() {
     if (_count <= 0 || _usable <= 0) return;
     // The tile may only advance while it is inside the playback band. The band
     // is updated synchronously by the page on every scroll, so a tile that
     // leaves stops before its next frame; a pinch/mosaic reflow moves tiles
     // without a scroll, hence the re-check on every tick rather than only on
-    // band changes.
+    // band changes. A tile that comes back joins the shared sequence at once,
+    // so it keeps switching with the others.
     if (!_isInPlaybackBand()) return;
-    final next = (_frame.value + 1) % _usable;
+    final next = _spriteClock.tick.value % _usable;
+    if (next == _frame.value) return;
     _frame.value = next;
     _notifyProgress(next);
+  }
+
+  // puts this tile on the frame the shared clock is at right now
+  void _syncToClock() {
+    if (_usable <= 0) return;
+    final frame = _spriteClock.tick.value % _usable;
+    _frame.value = frame;
+    _notifyProgress(frame);
   }
 
   bool _isInPlaybackBand() {
@@ -154,12 +204,11 @@ class _CloudSpriteAnimationState extends State<CloudSpriteAnimation> {
       _frame.value = 0;
       _load();
     } else if (oldWidget.speed != widget.speed || oldWidget.order != widget.order || oldWidget.startPercent != widget.startPercent) {
-      _frame.value = 0;
       if (oldWidget.startPercent != widget.startPercent) {
         _computeRange();
       }
-      _notifyProgress(0);
-      if (oldWidget.speed != widget.speed) _restartTimer();
+      if (oldWidget.speed != widget.speed) _spriteClock.setSpeed(widget.speed);
+      _syncToClock();
     }
   }
 
@@ -185,8 +234,7 @@ class _CloudSpriteAnimationState extends State<CloudSpriteAnimation> {
       _computeRange();
       _loading = false;
     });
-    _frame.value = 0;
-    _notifyProgress(0);
+    _syncToClock();
     // one cell's aspect ratio is the video's, as packed by the scraper: report
     // it so the mosaic lays the tile out at the real ratio instead of 16:9
     if (sheet.cols > 0 && sheet.rows > 0 && sheet.image.height > 0) {
@@ -214,8 +262,8 @@ class _CloudSpriteAnimationState extends State<CloudSpriteAnimation> {
   @override
   void dispose() {
     _loadToken++;
-    _timer?.cancel();
-    _timer = null;
+    _spriteClock.tick.removeListener(_onClockTick);
+    _spriteClock.detach();
     _releaseSheet();
     _frame.dispose();
     super.dispose();

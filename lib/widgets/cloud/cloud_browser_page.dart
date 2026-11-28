@@ -181,6 +181,9 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
   String _sortedMediaFilter = '';
   String _sortedMediaSort = '';
   List<PurerEntry> _sortedMediaCache = const [];
+  // "only videos with a sprite sheet" and the sprite set it was computed from
+  bool _sortedMediaSpriteOnly = false;
+  Set<String> _sortedMediaSpriteUris = const {};
   List<CloudResource>? _sortedFolderSource;
   bool _sortedFolderDescending = false;
   List<CloudResource> _sortedFolderCache = const [];
@@ -206,6 +209,10 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
   // uris of the current folder's videos that have a sprite sheet, so a tile
   // prefers the animation and skips extracting a frame that would just be hidden
   Set<String> _spriteUris = {};
+  // folder whose sprite availability is known. The "only sprite videos" filter
+  // waits for it, so opening or switching a folder does not briefly hide every
+  // video while the mirror listing is still on its way.
+  String? _spriteIndexUrl;
   // sprite uris learned earlier in the session (from the mirror listing), so
   // going back to a cached folder shows its animations immediately instead of
   // waiting for another listing (or a pull-to-refresh)
@@ -237,6 +244,7 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
         SettingKeys.cloudSpriteAnimationSpeedKey,
         SettingKeys.cloudSpriteAnimationOrderKey,
         SettingKeys.cloudSpriteStartPercentKey,
+        SettingKeys.cloudSpriteOnlyKey,
       ].contains(event.key)) {
         // No `isCurrent` guard: these options are changed from a modal sheet,
         // which makes the browser route non-current, so the change would only
@@ -812,6 +820,9 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
       for (final entry in snapshot.media)
         if (_knownSpriteUris.contains(entry.uri)) entry.uri,
     };
+    // a remembered set answers this folder already; otherwise the filter stays
+    // inactive until `_applyFolderCache` reads the mirror listing
+    _spriteIndexUrl = known.isEmpty ? null : url;
     if (known.length != _spriteUris.length || !known.containsAll(_spriteUris)) {
       setState(() => _spriteUris = known);
     } else {
@@ -1270,11 +1281,13 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
     // remember which videos have a sheet so their tiles animate (and skip the
     // otherwise wasted frame extraction); rebuild so tiles pick this up
     final hasSprite = spriteVideos.toSet();
+    final firstAnswer = _spriteIndexUrl != url;
+    _spriteIndexUrl = url;
     _knownSpriteUris.addAll(hasSprite);
     if (_knownSpriteUris.length > 20000) {
       _knownSpriteUris.removeAll(_knownSpriteUris.take(10000).toList());
     }
-    if (hasSprite.length != _spriteUris.length || !hasSprite.containsAll(_spriteUris)) {
+    if (firstAnswer || hasSprite.length != _spriteUris.length || !hasSprite.containsAll(_spriteUris)) {
       setState(() => _spriteUris = hasSprite);
     } else {
       _spriteUris = hasSprite;
@@ -2800,17 +2813,26 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
   }
 
   List<PurerEntry> _sortedMediaFor(List<PurerEntry> media, String filter, String sort) {
-    if (identical(_sortedMediaSource, media) && _sortedMediaFilter == filter && _sortedMediaSort == sort) {
+    // only videos that have a sheet: the answer comes from the mirror listing
+    // of this folder, so until it arrives nothing is hidden
+    final spriteOnly = settings.cloudSpriteOnly && _spriteIndexUrl == _currentUrl;
+    if (identical(_sortedMediaSource, media) && _sortedMediaFilter == filter && _sortedMediaSort == sort && _sortedMediaSpriteOnly == spriteOnly && identical(_sortedMediaSpriteUris, _spriteUris)) {
       return _sortedMediaCache;
     }
-    final visible = switch (filter) {
+    var visible = switch (filter) {
       'image' => media.where((e) => e.isImage).toList(),
       'video' => media.where((e) => e.isVideo).toList(),
       _ => media,
     };
+    if (spriteOnly) {
+      // images are left alone: the switch is about skipping unscraped videos
+      visible = visible.where((e) => !e.isVideo || _spriteUris.contains(e.uri)).toList();
+    }
     _sortedMediaSource = media;
     _sortedMediaFilter = filter;
     _sortedMediaSort = sort;
+    _sortedMediaSpriteOnly = spriteOnly;
+    _sortedMediaSpriteUris = _spriteUris;
     _sortedMediaCache = _sortEntries(visible, sort);
     return _sortedMediaCache;
   }

@@ -615,9 +615,13 @@ class CloudViewOptionsSheet extends StatelessWidget {
     return [
       SwitchListTile(
         title: Text(l10n.cloudSpriteAnimationEnabled),
-        subtitle: Text(l10n.cloudSpriteAnimationEnabledDescription),
         value: enabled,
         onChanged: (v) => settings.cloudSpriteAnimationEnabled = v,
+      ),
+      SwitchListTile(
+        title: Text(l10n.cloudSpriteOnly),
+        value: settings.cloudSpriteOnly,
+        onChanged: (v) => settings.cloudSpriteOnly = v,
       ),
       if (enabled) ...[
         CloudNumberStepper(
@@ -650,7 +654,6 @@ class CloudViewOptionsSheet extends StatelessWidget {
           onChanged: (v) => settings.cloudSpritePlaybackZone = v.round(),
           onTapValue: () => _showCustomSpritePlaybackZoneDialog(context),
         ),
-        _spriteHint(context, l10n.cloudSpritePlaybackZoneDescription),
         CloudNumberStepper(
           label: l10n.cloudSpriteStartPercent,
           valueLabel: '${settings.cloudSpriteStartPercent}%',
@@ -661,13 +664,11 @@ class CloudViewOptionsSheet extends StatelessWidget {
           onChanged: (v) => settings.cloudSpriteStartPercent = v.round(),
           onTapValue: () => _showCustomSpriteStartPercentDialog(context),
         ),
-        _spriteHint(context, l10n.cloudSpriteStartPercentDescription),
         // an explicit trigger for the current folder, since loading sprites is
         // normally automatic once the option is on
         ListTile(
           leading: const Icon(Icons.download_for_offline_outlined),
           title: Text(l10n.cloudSpriteLoadNow),
-          subtitle: Text(l10n.cloudSpriteLoadNowDescription),
           onTap: () => _runAndClose(context, onLoadSprites),
         ),
       ],
@@ -678,14 +679,6 @@ class CloudViewOptionsSheet extends StatelessWidget {
   // the signature, so a rebuild is enough to swap them (stale files are pruned
   // when each new animation is written)
   void _invalidateSpriteAnimations() => cloudSpriteAnimationsVersion.value++;
-
-  // small explanation under a stepper, without turning the option into a tile
-  Widget _spriteHint(BuildContext context, String text) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-      child: Text(text, style: Theme.of(context).textTheme.bodySmall),
-    );
-  }
 
   // folder progress: import, export, clear
   List<Widget> _progressSection(BuildContext context) {

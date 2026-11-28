@@ -223,6 +223,8 @@ class SettingKeys {
   static const cloudSpriteAnimationOrderKey = 'cloud_sprite_animation_order';
   static const cloudSpritePlaybackZoneKey = 'cloud_sprite_playback_zone';
   static const cloudSpriteStartPercentKey = 'cloud_sprite_start_percent';
+  // only list videos that have a sprite sheet
+  static const cloudSpriteOnlyKey = 'cloud_sprite_only';
   // per folder viewing progress (image totals and thumbnail hashes)
   static const cloudFolderStatsKey = 'cloud_folder_stats';
   // last scroll offset per folder, to resume where the user stopped

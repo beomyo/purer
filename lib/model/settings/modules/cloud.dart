@@ -330,7 +330,7 @@ mixin CloudSettings on SettingsAccess {
   // band stretches to the screen centre, so the first/last rows can play too.
   static const minSpritePlaybackZone = 5;
   static const maxSpritePlaybackZone = 100;
-  static const defaultSpritePlaybackZone = 20;
+  static const defaultSpritePlaybackZone = 5;
 
   int get cloudSpritePlaybackZone {
     final val = getInt(SettingKeys.cloudSpritePlaybackZoneKey) ?? defaultSpritePlaybackZone;
@@ -352,6 +352,13 @@ mixin CloudSettings on SettingsAccess {
   }
 
   set cloudSpriteStartPercent(int newValue) => set(SettingKeys.cloudSpriteStartPercentKey, newValue.clamp(minSpriteStartPercent, maxSpriteStartPercent));
+
+  // Only list videos that have a sprite sheet, so a folder can be checked at a
+  // glance. Off by default: the sheet index comes from the shared cache, so a
+  // folder that was never scraped would otherwise look empty.
+  bool get cloudSpriteOnly => getBool(SettingKeys.cloudSpriteOnlyKey) ?? false;
+
+  set cloudSpriteOnly(bool newValue) => set(SettingKeys.cloudSpriteOnlyKey, newValue);
 
   // mosaic magnifier options
   bool get cloudMosaicMagnifierEnabled => getBool(SettingKeys.cloudMosaicMagnifierEnabledKey) ?? true;
