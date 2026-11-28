@@ -4,7 +4,6 @@ publish_to: none
 
 # version bump checklist:
 # - increase app version: /pubspec.yaml
-# - edit changelog:       /CHANGELOG.md
 version: 1.2.3+36
 
 environment:
