@@ -44,19 +44,25 @@ class Device {
   new _private();
 
   Future<void> init() async {
-    final packageInfo = await PackageInfo.fromPlatform();
+    // the three platform queries below do not depend on each other: start them
+    // together so the app does not wait for three round trips in a row
+    final packageInfoFuture = PackageInfo.fromPlatform();
+    final androidInfoFuture = DeviceInfoPlugin().androidInfo;
+    final capabilitiesFuture = deviceService.getCapabilities();
+
+    final packageInfo = await packageInfoFuture;
     _packageName = packageInfo.packageName;
     _packageVersion = packageInfo.version;
     _userAgent = '$_packageName/$_packageVersion';
 
-    final androidInfo = await DeviceInfoPlugin().androidInfo;
+    final androidInfo = await androidInfoFuture;
     _isPhysicalDevice = androidInfo.isPhysicalDevice;
     _isTelevision = androidInfo.systemFeatures.contains('android.software.leanback');
 
     // the cloud app has no locked vault, so biometric authentication is never used
     _canAuthenticateUser = false;
 
-    final capabilities = await deviceService.getCapabilities();
+    final capabilities = await capabilitiesFuture;
     _canPinShortcut = capabilities['canPinShortcut'] as bool? ?? false;
     _canRenderSubdivisionFlagEmojis = capabilities['canRenderSubdivisionFlagEmojis'] as bool? ?? false;
     _canRequestMediaManagementPermission = capabilities['canRequestMediaManagementPermission'] as bool? ?? false;

@@ -11,11 +11,14 @@ import 'package:leak_tracker/leak_tracker.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   // mirrors the upstream app, so objects instrumented with `LeakTracking`
-  // (entries, tile controllers) are tracked in debug builds
-  LeakTracking.start();
-  FlutterMemoryAllocations.instance.addListener(
-    (event) => LeakTracking.dispatchObjectEvent(event.toMap()),
-  );
+  // (entries, tile controllers) are tracked in debug builds. Release builds do
+  // not allocate the tracking hooks at all.
+  if (kDebugMode) {
+    LeakTracking.start();
+    FlutterMemoryAllocations.instance.addListener(
+      (event) => LeakTracking.dispatchObjectEvent(event.toMap()),
+    );
+  }
   initPlatformServices();
   // hide the status bar from the very first frame; the stored preference is
   // applied again once the settings are loaded (see `CloudApp`)

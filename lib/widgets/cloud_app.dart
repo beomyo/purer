@@ -60,24 +60,35 @@ class _CloudAppState extends State<CloudApp> with WidgetsBindingObserver {
   void _applySystemUiMode() => unawaited(applyAppSystemUiMode(fullScreen: settings.hideSystemStatusBar));
 
   Future<void> _setup() async {
-    await device.init();
-    await settings.init();
+    // these platform queries are independent, so they run together instead of
+    // delaying the first screen one round trip at a time
+    final accessibility = (
+      AccessibilityService.areAnimationsRemoved(),
+      AccessibilityService.getLongPressTimeout(),
+    ).wait;
+    await Future.wait([device.init(), settings.init()]);
     _settingsSub = settings.updateStream.listen((event) {
       if (event.key == SettingKeys.hideSystemStatusBarKey) {
         _applySystemUiMode();
       }
     });
     _applySystemUiMode();
-    settings.areAnimationsRemoved = await AccessibilityService.areAnimationsRemoved();
-    settings.longPressTimeoutMillis = await AccessibilityService.getLongPressTimeout();
+    final (animationsRemoved, longPressTimeout) = await accessibility;
+    // writing an unchanged value would write SharedPreferences on every launch
+    if (settings.areAnimationsRemoved != animationsRemoved) {
+      settings.areAnimationsRemoved = animationsRemoved;
+    }
+    if (settings.longPressTimeout.inMilliseconds != longPressTimeout) {
+      settings.longPressTimeoutMillis = longPressTimeout;
+    }
     // expose the translated languages in Android's per-app language settings
     // (Android 13+)
     unawaited(deviceService.setLocaleConfig(supportedLocales));
     // bounded bitmap count; the decoded bitmap budget is applied by the cloud
     // image loader when it honors the quality setting
     imageCache.maximumSize = 1000;
-    videoControllerFactory.init();
-    videoMetadataFetcher.init();
+    // libmpv is only needed for video playback and the mpv frame fallback and
+    // is initialized on first use, so it does not delay the first screen
     purerLog.info(PurerLogCategory.app, '应用启动');
   }
 
@@ -92,18 +103,22 @@ class _CloudAppState extends State<CloudApp> with WidgetsBindingObserver {
         future: _appSetup,
         builder: (context, snapshot) {
           final initialized = !snapshot.hasError && snapshot.connectionState == ConnectionState.done;
+          // the launch window shows only its background color (see
+          // `values/styles.xml`); the first Flutter frame uses the same color
+          // and the home page fades in over it, so the start has neither an
+          // icon flash nor a hard cut
           final home = initialized
-              ? const CloudServerListPage()
-              : Scaffold(
-                  body: snapshot.hasError
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Text(snapshot.error.toString()),
-                          ),
-                        )
-                      : const SizedBox(),
-                );
+              ? const CloudServerListPage(key: ValueKey('home'))
+              : snapshot.hasError
+                  ? Scaffold(
+                      body: Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(snapshot.error.toString()),
+                        ),
+                      ),
+                    )
+                  : const _LaunchBackground(key: ValueKey('launch'));
           return Selector<Settings, (PurerThemeBrightness, bool)>(
             selector: (context, s) => (s.themeBrightness, s.enableDynamicColor),
             builder: (context, s, child) {
@@ -122,7 +137,12 @@ class _CloudAppState extends State<CloudApp> with WidgetsBindingObserver {
                   final darkTheme = themeBrightness == PurerThemeBrightness.black ? Themes.blackTheme(darkAccent, initialized, knownLocale) : Themes.darkTheme(darkAccent, initialized, knownLocale);
                   return MaterialApp(
                     title: appTitle,
-                    home: home,
+                    home: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 280),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      child: home,
+                    ),
                     theme: lightTheme,
                     darkTheme: darkTheme,
                     themeMode: themeBrightness.appThemeMode,
@@ -157,5 +177,24 @@ class CloudScrollBehavior extends MaterialScrollBehavior {
             child: child,
           )
         : child;
+  }
+}
+
+// Matches the native launch window background (see `values/styles.xml` and
+// `values-night/styles.xml`), so the first Flutter frame is indistinguishable
+// from the system splash while the settings load.
+class _LaunchBackground extends StatelessWidget {
+  const new({super.key});
+
+  static const _dayColor = Color(0xFFFFFFFF);
+  static const _nightColor = Color(0xFF262626);
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+    return ColoredBox(
+      color: dark ? _nightColor : _dayColor,
+      child: const SizedBox.expand(),
+    );
   }
 }

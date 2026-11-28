@@ -33,17 +33,22 @@ mixin CloudSettings on SettingsAccess {
   // the custom value dialogs, so an accepted input never reads back as another
   // value
   static const double autoScrollSpeedMin = 0.05;
-  static const double autoScrollSpeedMax = 100.0;
+  static const double autoScrollSpeedMax = 300.0;
+  // column bounds of the grid and the mosaic, shared by the option sheet, its
+  // custom value dialog and the browser's pinch zoom, so a gesture can never
+  // land outside what the steppers accept
+  static const double minCloudColumns = 1;
+  static const double maxCloudColumns = 16;
   static const double viewerPageFlipIntervalMin = 0.2;
-  static const double viewerPageFlipIntervalMax = 120.0;
+  static const double viewerPageFlipIntervalMax = 600.0;
   static const double mosaicPageFlipIntervalMin = 0.5;
-  static const double mosaicPageFlipIntervalMax = 60.0;
+  static const double mosaicPageFlipIntervalMax = 300.0;
   static const double pageFlipDistanceMin = 0.1;
-  static const double pageFlipDistanceMax = 2.0;
+  static const double pageFlipDistanceMax = 10.0;
   static const int magnifierDelayMin = 50;
-  static const int magnifierDelayMax = 2000;
+  static const int magnifierDelayMax = 5000;
   static const double magnifierScaleMin = 1.2;
-  static const double magnifierScaleMax = 10.0;
+  static const double magnifierScaleMax = 20.0;
 
   Map<String, CloudFolderStats>? _folderStatsCache;
   Timer? _folderStatsFlushTimer;
@@ -104,9 +109,9 @@ mixin CloudSettings on SettingsAccess {
   void removeCloudServer(String id) => cloudServers = cloudServers.where((v) => v.id != id).toList();
 
   // fractional so pinch-to-zoom can resize continuously
-  double get cloudColumns => getDouble(SettingKeys.cloudColumnsKey) ?? getInt(SettingKeys.cloudColumnsKey)?.toDouble() ?? 3;
+  double get cloudColumns => (getDouble(SettingKeys.cloudColumnsKey) ?? getInt(SettingKeys.cloudColumnsKey)?.toDouble() ?? 3).clamp(minCloudColumns, maxCloudColumns);
 
-  set cloudColumns(double newValue) => set(SettingKeys.cloudColumnsKey, newValue);
+  set cloudColumns(double newValue) => set(SettingKeys.cloudColumnsKey, newValue.clamp(minCloudColumns, maxCloudColumns));
 
   // one of `grid`, `list`, `mosaic`; used when a folder has no saved layout
   // (or when per-folder layouts are disabled)
@@ -303,7 +308,7 @@ mixin CloudSettings on SettingsAccess {
   set cloudSpriteAnimationEnabled(bool newValue) => set(SettingKeys.cloudSpriteAnimationEnabledKey, newValue);
 
   static const double spriteAnimationSpeedMin = 0.5;
-  static const double spriteAnimationSpeedMax = 30.0;
+  static const double spriteAnimationSpeedMax = 60.0;
   static const double defaultSpriteAnimationSpeed = 2;
 
   double get cloudSpriteAnimationSpeed {
@@ -338,7 +343,7 @@ mixin CloudSettings on SettingsAccess {
   // sheet drops the first 5 cells and plays cells 6-25. The dropped cells stay
   // in the file; only the animation ignores them.
   static const minSpriteStartPercent = 0;
-  static const maxSpriteStartPercent = 90;
+  static const maxSpriteStartPercent = 95;
   static const defaultSpriteStartPercent = 0;
 
   int get cloudSpriteStartPercent {
@@ -404,7 +409,7 @@ mixin CloudSettings on SettingsAccess {
 
   static const int defaultThumbnailRate = 2;
   static const int minThumbnailRate = 1;
-  static const int maxThumbnailRate = 20;
+  static const int maxThumbnailRate = 100;
 
   // servers rate limit per folder, so a specific folder can override the
   // global limit. `null` means the folder uses the global value.
@@ -1099,9 +1104,9 @@ mixin CloudSettings on SettingsAccess {
   // system reclaim memory under pressure, instead of throwing away pictures the
   // user just looked at. It is still capped internally at a value no phone can
   // usefully exceed (see `applyCloudDecodeBudget`).
-  static const cloudDecodeMemoryLimitsMb = [0, 256, 512, 1024, 2048];
+  static const cloudDecodeMemoryLimitsMb = [0, 256, 512, 1024, 2048, 4096];
   static const minCloudDecodeMemoryLimitMb = 256;
-  static const maxCloudDecodeMemoryLimitMb = 2048;
+  static const maxCloudDecodeMemoryLimitMb = 4096;
   static const defaultCloudDecodeMemoryLimitMb = 512;
 
   int get cloudDecodeMemoryLimitMb {
@@ -1120,9 +1125,9 @@ mixin CloudSettings on SettingsAccess {
   //
   // `0` means unlimited: nothing is evicted by a budget, which is only sensible
   // when the cache lives on a large card, so it is an explicit choice.
-  static const cloudDiskCacheSizesMb = [0, 256, 512, 1024, 2048, 4096];
+  static const cloudDiskCacheSizesMb = [0, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768];
   static const minCloudDiskCacheSizeMb = 256;
-  static const maxCloudDiskCacheSizeMb = 4096;
+  static const maxCloudDiskCacheSizeMb = 32768;
   static const defaultCloudDiskCacheSizeMb = 2048;
 
   int get cloudDiskCacheSizeMb {

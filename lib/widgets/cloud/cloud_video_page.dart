@@ -161,6 +161,9 @@ class _CloudVideoPageState extends State<CloudVideoPage> with FeedbackMixin {
     final neverResume = settings.videoResumptionMode == VideoResumptionMode.never;
     final resume = neverResume ? 0 : (settings.cloudVideoPosition(_storageUri) ?? 0);
     _resumePending = resume > 0;
+    // libmpv is not initialized during app startup: do it when the first player
+    // is actually needed (the call is idempotent)
+    videoControllerFactory.init();
     final controller = videoControllerFactory.buildController(
       _entry,
       // cloud progress is keyed by URL and handled by this page; the controller

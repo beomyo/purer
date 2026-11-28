@@ -512,7 +512,7 @@ void _forgetDecodedSpriteSheets(String uri) {
 // The budget used for the 'no budget' choice, see `applyCloudDecodeBudget`.
 //
 // It is derived from the device rather than fixed: a quarter of the total RAM,
-// kept between 512 MiB and 2 GiB. A small phone then still evicts instead of
+// kept between 512 MiB and 4 GiB. A small phone then still evicts instead of
 // being killed by the system, while a large one keeps far more decoded
 // pictures. One gigabyte is used when the total cannot be read.
 int? _unlimitedDecodeBudgetCache;
@@ -526,7 +526,7 @@ int _resolveUnlimitedDecodeBudget() {
     final match = RegExp(r'^MemTotal:\s+(\d+)\s+kB', multiLine: true).firstMatch(text);
     final totalBytes = (match == null ? 0 : int.parse(match.group(1)!)) * 1024;
     if (totalBytes <= 0) return fallback;
-    return (totalBytes ~/ 4).clamp(512 << 20, 2 << 30);
+    return (totalBytes ~/ 4).clamp(512 << 20, 4 << 30);
   } catch (_) {
     return fallback;
   }
@@ -1547,6 +1547,8 @@ class CloudAwareMediaFetchService implements MediaFetchService {
     ui.ImageDescriptor? descriptor;
     ui.Codec? codec;
     ui.Image? image;
+    // libmpv is initialized on first use rather than during app startup
+    videoMetadataFetcher.init();
     try {
       descriptor = await videoMetadataFetcher
           .getThumbnailDescriptor(
@@ -1627,6 +1629,7 @@ class CloudAwareMediaFetchService implements MediaFetchService {
         return fromPlatform;
       }
       if (!allowMpv) return null;
+      videoMetadataFetcher.init();
       final metadata = await videoMetadataFetcher.getMetadata(uri: source.url, mimeType: mimeType).timeout(_durationProbeTimeout);
       final seconds = metadata[Keys.duration];
       if (seconds is num && seconds > 0) {

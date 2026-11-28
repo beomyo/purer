@@ -313,6 +313,9 @@ class PlatformMediaFetchService implements MediaFetchService {
         );
 
         if (bytes.isEmpty && (MimeTypes.isVideo(mimeType) || mimeType == MimeTypes.avif)) {
+          // the libmpv fallback needs its native library, initialized on first
+          // use instead of during app startup (the call is idempotent)
+          videoMetadataFetcher.init();
           final descriptor = await videoMetadataFetcher.getThumbnailDescriptor(
             uri: uri,
             mimeType: mimeType,

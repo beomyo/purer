@@ -1121,7 +1121,7 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
     // thumbnails are turned off: the next folder's tiles download nothing, so
     // warming the cache would spend traffic for pictures never shown
     if (!settings.cloudShowThumbnails) return;
-    final count = (settings.cloudColumns.round() * 2).clamp(3, 8);
+    final count = (settings.cloudColumns.round() * 2).clamp(3, 24);
     final images = media.where((e) => e.isImage);
     for (final entry in images.take(count)) {
       if (!mounted) return;
@@ -1284,7 +1284,7 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
       // only the first screen is fetched ahead: downloading every sheet of a
       // video-heavy folder competed with the thumbnails the user is looking at.
       // The other tiles fetch their sheet when they are built (scrolled to).
-      final ahead = (settings.cloudColumns.round() * 3).clamp(6, 24);
+      final ahead = (settings.cloudColumns.round() * 3).clamp(6, 32);
       unawaited(_animateSpritesInBackground(url, toLoad.take(ahead).toList()));
     }
     purerLog.debug(PurerLogCategory.cache, '应用缩略图缓存 ${PurerLog.redactUrl(url)} durations=${durations.length} sprite=${spriteVideos.length} spriteOnly=${spriteOnly.length}');
@@ -2130,7 +2130,7 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
     if (details.pointerCount < 2) return;
     final scale = details.scale;
     if (scale <= 0) return;
-    final columns = (_scaleStartColumns / scale).clamp(1.0, 8.0);
+    final columns = (_scaleStartColumns / scale).clamp(CloudSettings.minCloudColumns, CloudSettings.maxCloudColumns);
     // quarter-column steps: a continuous value rebuilt the whole mosaic (and
     // recomputed every row) on each frame of the gesture
     final stepped = (columns * 4).roundToDouble() / 4;
@@ -3003,7 +3003,7 @@ class _CloudBrowserPageState extends State<CloudBrowserPage> with TickerProvider
   }
 
   Widget _buildGridSliver(BuildContext context, List<PurerEntry> entries, double columns, bool showNames, bool showSizes, bool showDimensions) {
-    final crossAxisCount = columns.round().clamp(1, 10);
+    final crossAxisCount = columns.round().clamp(CloudSettings.minCloudColumns.round(), CloudSettings.maxCloudColumns.round());
     final width = MediaQuery.sizeOf(context).width;
     final dpr = MediaQuery.devicePixelRatioOf(context);
     // no padding or spacing: the images touch each other edge to edge
