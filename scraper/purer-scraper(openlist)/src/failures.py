@@ -21,6 +21,7 @@ from .cache import (
 )
 from .console import bold, dim, green, hr, log, log_failure, log_success, red, yellow
 from .constants import (
+    DEFAULT_MIN_VIDEO_SECONDS,
     DEFAULT_SPRITE_MIN_DURATION,
     DEFAULT_SPRITE_WIDTH,
     EXTRACT_TIMEOUT,
@@ -31,6 +32,7 @@ from .constants import (
 )
 from .errors import VideoError, VideoSkipped, VideoUnsupported, failure_label
 from .failure_report import collect_failure_details, log_failure_details
+from .pacing import hold_min_seconds
 from .rate import RateLimiter
 from .scrape import scrape_one, scrape_one_sprite
 from .urls import (
@@ -344,6 +346,7 @@ class RetryContext:
     sprite_grid: tuple[int, int] = (3, 3)
     sprite_width: int = DEFAULT_SPRITE_WIDTH
     sprite_min_duration: float = DEFAULT_SPRITE_MIN_DURATION
+    min_video_seconds: float = DEFAULT_MIN_VIDEO_SECONDS
     sprite_index: bool = True
     sprite_window: bool = True
     unsupported_codecs: frozenset[str] | None = None
@@ -641,10 +644,13 @@ def interactive_retry(
         still_failed: list[FailedMarker] = []
         succeeded = 0
         for marker in selected:
+            retry_started = time.monotonic()
             if _retry_one(ctx, marker):
                 succeeded += 1
             else:
                 still_failed.append(marker)
+            # 与普通刮削一致：每个视频至少处理这么久，避免快速连续切换文件
+            hold_min_seconds(retry_started, ctx.min_video_seconds)
         markers[:] = [marker for marker in markers if id(marker) not in selected_ids] + still_failed
         print(f"本轮：成功 {succeeded} · 失败 {len(selected) - succeeded} · 剩余记录 {len(markers)}")
         if one_pass:

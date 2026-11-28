@@ -50,6 +50,7 @@ from .constants import (
     DEFAULT_UNSUPPORTED_CODECS,
     LARGE_VIDEO_BYTES,
     AVI_SAFE_POSITIONS,
+    DEFAULT_MIN_VIDEO_SECONDS,
     DEFAULT_SPRITE_MIN_DURATION,
     DEFAULT_SPRITE_WIDTH,
     EXTRACT_TIMEOUT,
@@ -77,6 +78,7 @@ from .ffmpeg import extract_frame, probe_duration
 from .httpcache import start_cache_proxy
 from .mp4sprite import SpriteIndexUnavailable, prepare_sprite_index
 from .mp4window import extract_frame_window
+from .pacing import hold_min_seconds
 from .tswindow import TsWindowUnavailable, extract_ts_frames, prepare_ts_window
 from .paths import DEFAULT_FAILED
 from .progress import TaskProgress, TaskTracker
@@ -1259,6 +1261,7 @@ def scrape(
     sprite_grid: tuple[int, int] = (3, 3),
     sprite_width: int = DEFAULT_SPRITE_WIDTH,
     sprite_min_duration: float = DEFAULT_SPRITE_MIN_DURATION,
+    min_video_seconds: float = DEFAULT_MIN_VIDEO_SECONDS,
     sprite_index: bool = True,
     sprite_window: bool = True,
     unsupported_codecs: frozenset[str] | None = None,
@@ -1585,6 +1588,9 @@ def scrape(
                     return _handle_with_task(video, task)
                 finally:
                     task.finish()
+                    # 每个视频至少处理这么久：跳过短片/不支持编码只要 1 秒左右，
+                    # 连续快速切换文件会触发 115 风控；已经处理够久的不再等待。
+                    hold_min_seconds(started_at[video.url], min_video_seconds)
 
             def _handle_with_task(
                 video: Resource, task: TaskProgress

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from .console import bold, cyan, dim, hr
-from .constants import DEFAULT_SPRITE_WIDTH
+from .constants import DEFAULT_MIN_VIDEO_SECONDS, DEFAULT_SPRITE_WIDTH
 from .urls import display_url, is_under, same_location
 
 # ---------------------------------------------------------------------------
@@ -120,6 +120,7 @@ def print_run_summary(
     sprite_grid: tuple[int, int] = (3, 3),
     sprite_width: int = DEFAULT_SPRITE_WIDTH,
     sprite_min_duration: float = 0.0,
+    min_video_seconds: float = DEFAULT_MIN_VIDEO_SECONDS,
 ) -> None:
     print()
     hr("═")
@@ -130,6 +131,9 @@ def print_run_summary(
         print(f"  {dim('缓存服务')}  {display_url(cache_server)}")
     print(f"  {dim('缓存根')}    {display_url(cache_folder)}")
     print(f"  {dim('刮削目录')}  {display_url(source_folder)}")
+    pace_note = (
+        f" · 每视频至少 {min_video_seconds:g}s" if min_video_seconds > 0 else ""
+    )
     if mode == "sprite":
         duration_note = (
             f" · 仅时长 > {sprite_min_duration:g}s" if sprite_min_duration > 0 else ""
@@ -138,9 +142,13 @@ def print_run_summary(
             f"雪碧图 {sprite_grid[0]}x{sprite_grid[1]}"
             f"（{sprite_grid[0] * sprite_grid[1]} 帧）{duration_note} · "
             f"单格上限 {sprite_width}px · 限速 {rate:g} 次/秒 · 并发 {jobs}"
+            f"{pace_note}"
         )
     else:
-        params = f"取帧 {percent:g}% · 限速 {rate:g} 次/秒 · 缩略图 {width}px · 并发 {jobs}"
+        params = (
+            f"取帧 {percent:g}% · 限速 {rate:g} 次/秒 · 缩略图 {width}px · 并发 {jobs}"
+            f"{pace_note}"
+        )
     print(f"  {dim('参数')}      {params}")
     hr("═")
     print()
