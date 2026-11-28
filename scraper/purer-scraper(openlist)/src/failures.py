@@ -405,6 +405,7 @@ def _retry_one(ctx: RetryContext, marker: FailedMarker) -> bool:
                 sprite_index=ctx.sprite_index,
                 sprite_window=ctx.sprite_window,
                 unsupported_codecs=ctx.unsupported_codecs,
+                thumb_width=ctx.width,
             )
         else:
             filename, duration = scrape_one(

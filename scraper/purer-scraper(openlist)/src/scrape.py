@@ -612,6 +612,7 @@ def compose_sprite(
                 "-hide_banner",
                 "-loglevel",
                 "error",
+                "-nostdin",
                 "-y",
                 "-framerate",
                 "1",
@@ -674,63 +675,80 @@ def compose_sprite(
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def sprite_last_cell(ffmpeg: str, sprite: bytes, cols: int, rows: int) -> bytes:
+def _encode_thumbnail(ffmpeg: str, image: bytes, vf: str, phase: str) -> bytes:
+    """用本地 ffmpeg 把一张 JPEG 处理成缩略图。
+
+    stdin/stdout 走管道，不落临时文件；-nostdin 避免后台运行时去读终端输入。
+    """
+    cmd = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-y",
+        "-i",
+        "pipe:0",
+        "-vf",
+        vf,
+        "-frames:v",
+        "1",
+        "-q:v",
+        "3",
+        "-f",
+        "mjpeg",
+        "pipe:1",
+    ]
+    try:
+        proc = subprocess.run(cmd, input=image, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired as exc:
+        raise VideoError("timeout", f"{phase}超时", phase=phase) from exc
+    if proc.returncode != 0 or not proc.stdout:
+        detail = (proc.stderr or b"").decode("utf-8", "replace").strip()
+        raise VideoError(
+            "noframe",
+            f"{phase}失败：" + (detail[:300] or f"exit {proc.returncode}"),
+            phase=phase,
+        )
+    if not proc.stdout.startswith(b"\xff\xd8"):
+        raise VideoError("noframe", f"{phase}没有返回 JPEG", phase=phase)
+    return proc.stdout
+
+
+def scale_thumbnail(ffmpeg: str, frame: bytes, width: int) -> bytes:
+    """把一帧 JPEG 缩放到缩略图模式的尺寸（最长边不超过 width，与远程抽帧一致）。"""
+    vf = f"scale={width}:{width}:force_original_aspect_ratio=decrease,format=yuvj420p"
+    return _encode_thumbnail(ffmpeg, frame, vf, "缩放缩略图")
+
+
+def sprite_last_cell(
+    ffmpeg: str, sprite: bytes, cols: int, rows: int, width: int | None = None
+) -> bytes:
     """从雪碧图裁出最后一个格子（右下角），作为普通缩略图。
 
     按列/行均分图片尺寸，与 App 解析雪碧图的方式一致，不依赖图片的实际像素值
-    （雪碧图超限时会被整体缩小，单格尺寸并不固定）。
+    （雪碧图超限时会被整体缩小，单格尺寸并不固定）；width 不为空时顺便缩放到
+    缩略图模式的尺寸。
     """
     if cols < 1 or rows < 1:
         raise VideoError("noframe", "雪碧图行列参数无效", phase="裁缩略图")
-    tmpdir = tempfile.mkdtemp(prefix="purer-thumb-")
-    try:
-        source = os.path.join(tmpdir, "sprite.jpg")
-        output = os.path.join(tmpdir, "thumb.jpg")
-        with open(source, "wb") as fh:
-            fh.write(sprite)
-        # 最后一帧在 tile 拼图的右下角；按列/行均分，并让右/下边缘对齐整张图
-        # （雪碧图可能被整体缩放到不能整除的尺寸）
-        vf = (
-            f"crop=trunc(iw/{cols}):trunc(ih/{rows}):"
-            f"iw-trunc(iw/{cols}):ih-trunc(ih/{rows})"
-        )
-        cmd = [
-            ffmpeg,
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            source,
-            "-vf",
-            vf,
-            "-frames:v",
-            "1",
-            "-q:v",
-            "3",
-            output,
-        ]
-        proc = subprocess.run(cmd, capture_output=True, timeout=60)
-        if proc.returncode != 0 or not os.path.exists(output):
-            detail = (proc.stderr or b"").decode("utf-8", "replace").strip()
-            raise VideoError(
-                "noframe",
-                "从雪碧图裁缩略图失败：" + (detail[:300] or f"exit {proc.returncode}"),
-                phase="裁缩略图",
-            )
-        with open(output, "rb") as fh:
-            data = fh.read()
-        if not data.startswith(b"\xff\xd8"):
-            raise VideoError("noframe", "从雪碧图裁出的缩略图不是 JPEG", phase="裁缩略图")
-        return data
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+    # 最后一帧在 tile 拼图的右下角；按列/行均分，并让右/下边缘对齐整张图
+    # （雪碧图可能被整体缩放到不能整除的尺寸）
+    vf = (
+        f"crop=trunc(iw/{cols}):trunc(ih/{rows}):"
+        f"iw-trunc(iw/{cols}):ih-trunc(ih/{rows})"
+    )
+    if width and width > 0:
+        vf += f",scale={width}:{width}:force_original_aspect_ratio=decrease"
+    vf += ",format=yuvj420p"
+    return _encode_thumbnail(ffmpeg, sprite, vf, "裁缩略图")
 
 
-def sprite_thumbnail_name(sprite: Resource) -> str | None:
-    """雪碧图对应的普通缩略图文件名：去掉 `~列x行` 后缀，其余（时长前缀）不变。"""
-    name = sprite.name
-    base, grid = split_sprite_suffix(name[:-4] if name.lower().endswith(".jpg") else name)
+def thumbnail_name_for_sprite(sprite_name: str) -> str | None:
+    """雪碧图文件名对应的普通缩略图文件名：去掉 `~列x行` 后缀，时长前缀不变。"""
+    base, grid = split_sprite_suffix(
+        sprite_name[:-4] if sprite_name.lower().endswith(".jpg") else sprite_name
+    )
     if grid is None:
         return None
     return base + ".jpg"
@@ -744,6 +762,7 @@ def backfill_thumbnail_from_sprite(
     retries: int,
     limiter: RateLimiter,
     folder: str,
+    width: int,
     label: str,
 ) -> bool:
     """已有雪碧图但没有普通缩略图：下载雪碧图，裁最后一格上传为缩略图。
@@ -755,7 +774,7 @@ def backfill_thumbnail_from_sprite(
     _, grid = split_sprite_suffix(name[:-4] if name.lower().endswith(".jpg") else name)
     if grid is None:
         return False
-    thumb_name = sprite_thumbnail_name(sprite)
+    thumb_name = thumbnail_name_for_sprite(name)
     if thumb_name is None:
         return False
     folder_url = sprite.url.rsplit("/", 1)[0]
@@ -770,7 +789,7 @@ def backfill_thumbnail_from_sprite(
 
     try:
         sheet = retry(f"下载雪碧图 {label}", retries, download)
-        data = sprite_last_cell(ffmpeg, sheet, grid[0], grid[1])
+        data = sprite_last_cell(ffmpeg, sheet, grid[0], grid[1], width)
         retry(f"上传缩略图 {label}", retries, lambda: upload(data))
     except Exception as exc:  # noqa: BLE001 - 补缩略图是顺手的事，失败不能中断扫描
         log(f"  {label}：从雪碧图补缩略图失败（{exc}），下次运行再试")
@@ -802,6 +821,8 @@ def scrape_one_sprite(
     sprite_index: bool = True,
     sprite_window: bool = True,
     unsupported_codecs: frozenset[str] | None = None,
+    thumb_width: int | None = None,
+    existing_thumbnails: set[str] | None = None,
     task: TaskProgress | None = None,
 ) -> tuple[str, float | None]:
     """生成雪碧图并上传，返回缓存文件名与时长。
@@ -1140,36 +1161,42 @@ def scrape_one_sprite(
     log(f"  {video.name}：雪碧图完成（{len(sprite) // 1024}KB）")
 
     # 同时写一张普通缩略图：取雪碧图最后一帧，省得用户再跑一遍缩略图模式。
-    # 失败不影响雪碧图本身，下次运行扫描到「有雪碧图、没缩略图」会自动补上。
-    thumb_frame = frames[-1]
+    # 目标路径已有缩略图时不覆盖；失败也不影响雪碧图本身，下次运行会自动补上。
     thumb_name = cache_base_name(video.name, duration) + ".jpg"
-    thumb_url = normalize_folder(mirror_dir) + quote_name(thumb_name)
+    if existing_thumbnails is not None and thumb_name in existing_thumbnails:
+        log(f"  {video.name}：已有缩略图，保留不覆盖")
+    else:
+        thumb_url = normalize_folder(mirror_dir) + quote_name(thumb_name)
 
-    def upload_thumb() -> None:
-        if runtime.cancel_event.is_set():
-            raise VideoError("timeout", "已取消")
+        def upload_thumb(data: bytes) -> None:
+            if runtime.cancel_event.is_set():
+                raise VideoError("timeout", "已取消")
+            try:
+                put_ensured(cache_client, thumb_url, data, "image/jpeg", cache_root)
+            except WebDavError as exc:
+                raise VideoError(
+                    "upload",
+                    f"上传缩略图失败：{exc}",
+                    phase="上传缩略图",
+                    context={"url": thumb_url, "size": len(data), "http_status": exc.status},
+                ) from exc
+
         try:
-            put_ensured(cache_client, thumb_url, thumb_frame, "image/jpeg", cache_root)
-        except WebDavError as exc:
-            raise VideoError(
-                "upload",
-                f"上传缩略图失败：{exc}",
-                phase="上传缩略图",
-                context={
-                    "url": thumb_url,
-                    "size": len(thumb_frame),
-                    "http_status": exc.status,
-                },
-            ) from exc
-
-    try:
-        retry(f"上传 {thumb_name}", retries, upload_thumb)
-        log(
-            f"  {video.name}：缩略图完成（取雪碧图最后一帧，"
-            f"{len(thumb_frame) // 1024}KB）"
-        )
-    except Exception as exc:  # noqa: BLE001 - 雪碧图已经上传成功，缩略图失败下次再补
-        log(f"  {video.name}：缩略图生成失败（{exc}），下次运行会从雪碧图补上")
+            target_width = thumb_width if thumb_width and thumb_width > 0 else cell_width
+            thumb_frame = frames[-1]
+            if target_width != cell_width:
+                # 单格是按 --sprite-width 抽的；缩略图要跟 --width 一致时再缩一次
+                thumb_frame = scale_thumbnail(ffmpeg, thumb_frame, target_width)
+            retry(f"上传 {thumb_name}", retries, lambda: upload_thumb(thumb_frame))
+            log(
+                f"  {video.name}：缩略图完成（取雪碧图最后一帧，"
+                f"{len(thumb_frame) // 1024}KB）"
+            )
+            if existing_thumbnails is not None:
+                # 本文件夹后续判断「缩略图是否已存在」时也看得到这一张
+                existing_thumbnails.add(thumb_name)
+        except Exception as exc:  # noqa: BLE001 - 雪碧图已经上传成功，缩略图失败下次再补
+            log(f"  {video.name}：缩略图生成失败（{exc}），下次运行会从雪碧图补上")
     return filename, duration
 
 def scrape(
@@ -1258,6 +1285,10 @@ def scrape(
         # 连续服务器 5xx 保护：115 WAF/OpenList 故障时不要把所有视频都打一遍
         server_streak = 0
         server_streak_limit = 5
+        # 旧缓存只有雪碧图、没有普通缩略图：先记下来，等所有视频处理完再统一补，
+        # 避免补图（每个都要先下载一次雪碧图）把视频处理的启动拖慢。
+        backfills: list[tuple[str, Resource, Resource | None, str, str]] = []
+        cache_auth_failed = False
 
         log(f"开始刮削：{display_url(source_folder)}")
         log(f"缓存根目录：{display_url(cache_root)}")
@@ -1346,6 +1377,7 @@ def scrape(
                 log(f"读取缓存目录失败 {display_url(mirror_dir)}：{exc}；跳过该文件夹（不会重新抽帧已有缩略图）")
                 if exc.status in (401, 403):
                     log("缓存 WebDAV 认证失败，停止本次刮削。")
+                    cache_auth_failed = True
                     break
                 continue
 
@@ -1411,30 +1443,24 @@ def scrape(
                             None,
                         )
                         thumb_name = (
-                            sprite_thumbnail_name(sprite_resource)
+                            thumbnail_name_for_sprite(sprite_resource.name)
                             if sprite_resource is not None
                             else None
                         )
-                        if (
-                            thumb_name is not None
-                            and thumb_name not in cache_file_names
-                            and not runtime.cancel_event.is_set()
-                        ):
-                            # 旧版雪碧图模式只写了雪碧图：下载后裁最后一格补缩略图
+                        if thumb_name is not None and thumb_name not in cache_file_names:
+                            # 旧版雪碧图模式只写了雪碧图：等扫描完再下载雪碧图补缩略图
                             if dry_run:
                                 log(f"  待补缩略图（取雪碧图最后一帧）：{thumb_name}")
-                            elif backfill_thumbnail_from_sprite(
-                                ffmpeg,
-                                cache_client,
-                                sprite_resource,
-                                cache_root,
-                                retries,
-                                limiter,
-                                folder,
-                                video.name,
-                            ):
-                                stats.bump(generated=1)
-                                cache_file_names.add(thumb_name)
+                            elif not runtime.cancel_event.is_set():
+                                backfills.append(
+                                    (
+                                        folder,
+                                        sprite_resource,
+                                        listing.failures.get(video.name),
+                                        video.url,
+                                        video.name,
+                                    )
+                                )
                         stale = stale_sprite_files(listing, video.name, sprite_grid)
                         if stale:
                             if dry_run:
@@ -1554,6 +1580,8 @@ def scrape(
                         sprite_index=sprite_index,
                         sprite_window=sprite_window,
                         unsupported_codecs=skip_codecs,
+                        thumb_width=width,
+                        existing_thumbnails=cache_file_names,
                         task=task,
                     )
                 return scrape_one(
@@ -1609,7 +1637,7 @@ def scrape(
                             f" · {display_url(folder)} · {video.url}"
                         )
                         # 另一个设备可能刚写过标记：成功后把它清掉。
-                        # 雪碧图模式不动缩略图的失败状态。
+                        # 雪碧图模式只在确认普通缩略图存在后才清缩略图的失败状态。
                         if mode != "sprite":
                             stale = listing.failures.get(video.name)
                             if stale is not None:
@@ -1617,6 +1645,16 @@ def scrape(
                             if store is not None:
                                 store.remove(video.url)
                         else:
+                            thumb_target = thumbnail_name_for_sprite(filename)
+                            if thumb_target is not None and thumb_target in cache_file_names:
+                                # 普通缩略图已经存在（这次刚写或本来就有）：
+                                # 缩略图模式留下的失败标记/本地记录都过期了
+                                stale = listing.failures.get(video.name)
+                                if stale is not None:
+                                    delete_marker(cache_client, stale)
+                                    log(f"  已有缩略图，清除过期失败标记 {stale.name}")
+                                if store is not None:
+                                    store.remove(video.url)
                             removed_here = cleanup_stale_sprites(
                                 cache_client, listing, video.name, sprite_grid, filename
                             )
@@ -1785,6 +1823,45 @@ def scrape(
                     for future in futures:
                         future.cancel()
                     executor.shutdown(wait=False)
+
+        # 所有文件夹都扫完、视频也都处理完之后，再补「有雪碧图、没普通缩略图」的
+        # 旧缓存：下载雪碧图（≤1MB，走限速）裁右下角一格上传，不重新读视频。
+        if backfills and not cache_auth_failed and not runtime.cancel_event.is_set():
+            log(
+                f"补缩略图：{len(backfills)} 个雪碧图缺少普通缩略图"
+                "（下载雪碧图取最后一帧，不重新读视频）"
+            )
+            added = 0
+            for (
+                folder_url,
+                sprite,
+                stale_marker,
+                video_url,
+                video_name,
+            ) in backfills:
+                if runtime.cancel_event.is_set():
+                    break
+                if not backfill_thumbnail_from_sprite(
+                    ffmpeg,
+                    cache_client,
+                    sprite,
+                    cache_root,
+                    retries,
+                    limiter,
+                    folder_url,
+                    width,
+                    video_name,
+                ):
+                    continue
+                stats.bump(generated=1)
+                added += 1
+                if stale_marker is not None:
+                    delete_marker(cache_client, stale_marker)
+                    log(f"  已有缩略图，清除过期失败标记 {stale_marker.name}")
+                if store is not None:
+                    store.remove(video_url)
+            if added:
+                log(f"已补 {added} 个缩略图。")
 
         if stats.removed:
             log(f"本次删除 {stats.removed} 个无效文件/目录（源视频或源文件夹已删除，或旧格子雪碧图）。")
