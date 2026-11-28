@@ -134,7 +134,10 @@ class Stats:
             self.failures.append((url, reason))
 
     def add_elapsed(self, seconds: float) -> None:
-        """记录一个视频的实际用时，用于动态平均（进度区和结束汇总）。"""
+        """记录一个实际处理的视频用时，用于动态平均（进度区和结束汇总）。
+
+        跳过（时长不足、编码不支持）的视频不计入，平均只反映真正需要处理的视频。
+        """
         if seconds < 0:
             return
         with self._lock:
@@ -1413,11 +1416,11 @@ def scrape(
                     video = futures[future]
                     done_count += 1
                     elapsed = time.monotonic() - started_at.get(video.url, time.monotonic())
-                    stats.add_elapsed(elapsed)
                     show_status(folder, done_count, len(todo))
                     try:
                         filename, duration = future.result()
                         stats.bump(generated=1)
+                        stats.add_elapsed(elapsed)
                         server_streak = 0
                         suffix = "" if duration is None else f" · {duration:.0f}s"
                         log(
@@ -1464,6 +1467,7 @@ def scrape(
                             f" · 用时 {elapsed:.1f}s"
                         )
                     except VideoError as exc:
+                        stats.add_elapsed(elapsed)
                         stats.add_failure(video.url, str(exc))
                         reason = exc.reason
                         details = collect_failure_details(
@@ -1547,6 +1551,7 @@ def scrape(
                         else:
                             server_streak = 0
                     except Exception as exc:  # noqa: BLE001
+                        stats.add_elapsed(elapsed)
                         stats.add_failure(video.url, str(exc))
                         details = collect_failure_details(
                             exc,

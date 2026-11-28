@@ -631,7 +631,7 @@ def main(argv: list[str] | None = None) -> int:
         else ""
     )
     average = stats.average_seconds()
-    average_note = f"   平均 {average:.1f}s/视频（{stats.timed} 个）" if stats.timed else ""
+    average_note = f"   平均 {average:.1f}s/个（已处理 {stats.timed} 个）" if stats.timed else ""
     print(
         f"  {green('新增')} {stats.generated}   {dim('已存在')} {stats.skipped}   "
         f"{dim('失败跳过')} {stats.skipped_failed}   {yellow('本次失败')} {stats.failed}   "
@@ -651,7 +651,7 @@ def main(argv: list[str] | None = None) -> int:
             else ""
         )
         + (
-            f" · 平均 {stats.average_seconds():.1f}s/视频"
+            f" · 平均 {stats.average_seconds():.1f}s/个（已处理 {stats.timed} 个）"
             if stats.timed
             else ""
         )
