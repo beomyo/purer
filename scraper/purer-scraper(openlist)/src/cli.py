@@ -108,7 +108,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=None, help="缩略图最大边长，默认 320 像素")
     parser.add_argument(
         "--sprite", action="store_true",
-        help="生成雪碧图而不是普通缩略图（默认仍然生成缩略图）；交互运行时也会询问",
+        help="生成雪碧图（同时写一张普通缩略图，取雪碧图最后一帧；默认只生成缩略图）；交互运行时也会询问",
     )
     parser.add_argument(
         "--sprite-grid", default=None,

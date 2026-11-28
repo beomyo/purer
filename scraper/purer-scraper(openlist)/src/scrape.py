@@ -88,6 +88,7 @@ from .urls import (
     normalize_folder,
     quote_name,
     same_location,
+    split_sprite_suffix,
     sprite_filename,
     sprite_positions,
     video_mime,
@@ -673,6 +674,100 @@ def compose_sprite(
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def sprite_last_cell(ffmpeg: str, sprite: bytes, cols: int, rows: int) -> bytes:
+    """从雪碧图裁出最后一个格子（右下角），作为普通缩略图。
+
+    按列/行均分图片尺寸，与 App 解析雪碧图的方式一致，不依赖图片的实际像素值
+    （雪碧图超限时会被整体缩小，单格尺寸并不固定）。
+    """
+    if cols < 1 or rows < 1:
+        raise VideoError("noframe", "雪碧图行列参数无效", phase="裁缩略图")
+    tmpdir = tempfile.mkdtemp(prefix="purer-thumb-")
+    try:
+        source = os.path.join(tmpdir, "sprite.jpg")
+        output = os.path.join(tmpdir, "thumb.jpg")
+        with open(source, "wb") as fh:
+            fh.write(sprite)
+        # 最后一帧在 tile 拼图的右下角；按列/行均分，并让右/下边缘对齐整张图
+        # （雪碧图可能被整体缩放到不能整除的尺寸）
+        vf = (
+            f"crop=trunc(iw/{cols}):trunc(ih/{rows}):"
+            f"iw-trunc(iw/{cols}):ih-trunc(ih/{rows})"
+        )
+        cmd = [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            source,
+            "-vf",
+            vf,
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
+            output,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, timeout=60)
+        if proc.returncode != 0 or not os.path.exists(output):
+            detail = (proc.stderr or b"").decode("utf-8", "replace").strip()
+            raise VideoError(
+                "noframe",
+                "从雪碧图裁缩略图失败：" + (detail[:300] or f"exit {proc.returncode}"),
+                phase="裁缩略图",
+            )
+        with open(output, "rb") as fh:
+            data = fh.read()
+        if not data.startswith(b"\xff\xd8"):
+            raise VideoError("noframe", "从雪碧图裁出的缩略图不是 JPEG", phase="裁缩略图")
+        return data
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def backfill_thumbnail_from_sprite(
+    ffmpeg: str,
+    cache_client: WebDav,
+    sprite: Resource,
+    cache_root: str,
+    retries: int,
+    limiter: RateLimiter,
+    folder: str,
+    label: str,
+) -> bool:
+    """已有雪碧图但没有普通缩略图：下载雪碧图，裁最后一格上传为缩略图。
+
+    旧版雪碧图模式只写雪碧图；雪碧图文件名里的时长前缀和目录都可以直接复用，
+    补出来的缩略图与普通模式生成的缩略图同名，App 能直接识别。不需要重新读视频。
+    """
+    name = sprite.name
+    base, grid = split_sprite_suffix(name[:-4] if name.lower().endswith(".jpg") else name)
+    if grid is None:
+        return False
+    thumb_name = base + ".jpg"
+    folder_url = sprite.url.rsplit("/", 1)[0]
+    thumb_url = folder_url + "/" + quote_name(thumb_name)
+
+    def download() -> bytes:
+        limiter.wait(folder)
+        return cache_client.get_bytes(sprite.url)
+
+    def upload(data: bytes) -> None:
+        put_ensured(cache_client, thumb_url, data, "image/jpeg", cache_root)
+
+    try:
+        sheet = retry(f"下载雪碧图 {label}", retries, download)
+        data = sprite_last_cell(ffmpeg, sheet, grid[0], grid[1])
+        retry(f"上传缩略图 {label}", retries, lambda: upload(data))
+    except (VideoError, WebDavError) as exc:
+        log(f"  {label}：从雪碧图补缩略图失败（{exc}），下次运行再试")
+        return False
+    log(f"  {label}：已从雪碧图补上缩略图（取最后一帧，{len(data) // 1024}KB）")
+    return True
+
+
 def scrape_one_sprite(
     video: Resource,
     folder: str,
@@ -1032,6 +1127,38 @@ def scrape_one_sprite(
 
     retry(f"上传 {filename}", retries, upload)
     log(f"  {video.name}：雪碧图完成（{len(sprite) // 1024}KB）")
+
+    # 同时写一张普通缩略图：取雪碧图最后一帧，省得用户再跑一遍缩略图模式。
+    # 失败不影响雪碧图本身，下次运行扫描到「有雪碧图、没缩略图」会自动补上。
+    thumb_frame = frames[-1]
+    thumb_name = cache_base_name(video.name, duration) + ".jpg"
+    thumb_url = normalize_folder(mirror_dir) + quote_name(thumb_name)
+
+    def upload_thumb() -> None:
+        if runtime.cancel_event.is_set():
+            raise VideoError("timeout", "已取消")
+        try:
+            put_ensured(cache_client, thumb_url, thumb_frame, "image/jpeg", cache_root)
+        except WebDavError as exc:
+            raise VideoError(
+                "upload",
+                f"上传缩略图失败：{exc}",
+                phase="上传缩略图",
+                context={
+                    "url": thumb_url,
+                    "size": len(thumb_frame),
+                    "http_status": exc.status,
+                },
+            ) from exc
+
+    try:
+        retry(f"上传 {thumb_name}", retries, upload_thumb)
+        log(
+            f"  {video.name}：缩略图完成（取雪碧图最后一帧，"
+            f"{len(thumb_frame) // 1024}KB）"
+        )
+    except (VideoError, WebDavError) as exc:
+        log(f"  {video.name}：缩略图生成失败（{exc}），下次运行会从雪碧图补上")
     return filename, duration
 
 def scrape(
@@ -1128,6 +1255,9 @@ def scrape(
             log(
                 f"雪碧图 {cols}x{rows}（{cols * rows} 帧）· 单格上限 {sprite_width}px · "
                 f"限速 {rate:g} 次/秒（按文件夹）· 并发 {jobs}"
+            )
+            log(
+                "同时写入普通缩略图（取雪碧图最后一帧）；已有雪碧图但缺缩略图时会自动补上。"
             )
             log("提示：雪碧图需要对每个视频取多帧，流量和耗时约为普通缩略图的多倍。")
             if sprite_index:
@@ -1258,6 +1388,35 @@ def scrape(
                     # 按格子判断，改了 --sprite-grid 会重新生成。
                     if sprite_grid in listing.sprites.get(video.name, ()):
                         skipped_here += 1
+                        if video.name not in listing.frames:
+                            # 旧版雪碧图模式只写了雪碧图：下载后裁最后一格补缩略图
+                            if dry_run:
+                                log(f"  待补缩略图（取雪碧图最后一帧）：{video.name}")
+                            else:
+                                sprite_resource = next(
+                                    (
+                                        resource
+                                        for grid, resource in listing.sprite_files.get(
+                                            video.name, ()
+                                        )
+                                        if grid == sprite_grid
+                                    ),
+                                    None,
+                                )
+                                if (
+                                    sprite_resource is not None
+                                    and backfill_thumbnail_from_sprite(
+                                        ffmpeg,
+                                        cache_client,
+                                        sprite_resource,
+                                        cache_root,
+                                        retries,
+                                        limiter,
+                                        folder,
+                                        video.name,
+                                    )
+                                ):
+                                    stats.bump(generated=1)
                         stale = stale_sprite_files(listing, video.name, sprite_grid)
                         if stale:
                             if dry_run:
