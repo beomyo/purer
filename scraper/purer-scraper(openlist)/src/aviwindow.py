@@ -30,7 +30,7 @@ from .constants import (
     SPRITE_AVI_WINDOW_BYTES,
     SPRITE_AVI_WORKERS,
 )
-from .errors import VideoError
+from .errors import VideoError, is_upstream_block
 from .ffmpeg import _run_capture
 from .mp4window import read_range_retry
 from .progress import TaskProgress
@@ -296,6 +296,9 @@ def extract_dv_frames(
                     os.remove(path)
                 except OSError:
                     pass
+        if isinstance(last_error, VideoError) and is_upstream_block(last_error):
+            # 上游整体不可用：不要包装成 noframe（会重置连续 5xx 计数）
+            raise last_error
         raise VideoError(
             "noframe",
             f"第 {index + 1}/{count} 个 DV 窗口失败（{last_error}）",

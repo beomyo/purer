@@ -65,7 +65,13 @@ from .constants import (
     STALL_TIMEOUT,
     WINDOW_BYTES,
 )
-from .errors import VideoError, VideoSkipped, VideoUnsupported, failure_label
+from .errors import (
+    VideoError,
+    VideoSkipped,
+    VideoUnsupported,
+    failure_label,
+    is_upstream_block,
+)
 from .failure_report import collect_failure_details, log_failure_details
 from .ffmpeg import extract_frame, probe_duration
 from .httpcache import start_cache_proxy
@@ -871,8 +877,10 @@ def scrape_one_sprite(
     ):
         try:
             ts_packet = prepare_ts_window(source_client, video.url, video.size)
-        except VideoError:
-            if runtime.cancel_event.is_set():
+        except VideoError as exc:
+            # 上游被 WAF/限流拦截时，后面的索引和逐帧读取也会同样失败：
+            # 直接上报，让连续 5xx 的保护生效，不要换条路径再打一轮请求。
+            if runtime.cancel_event.is_set() or is_upstream_block(exc):
                 raise
             ts_packet = None
 
@@ -897,8 +905,8 @@ def scrape_one_sprite(
             avi_codec_error = exc
         except AviWindowUnavailable:
             avi_info = None
-        except VideoError:
-            if runtime.cancel_event.is_set():
+        except VideoError as exc:
+            if runtime.cancel_event.is_set() or is_upstream_block(exc):
                 raise
             avi_info = None
 
@@ -943,7 +951,9 @@ def scrape_one_sprite(
         except SpriteIndexUnavailable as exc:
             index_error = str(exc)
         except VideoError as exc:
-            if runtime.cancel_event.is_set():
+            if runtime.cancel_event.is_set() or is_upstream_block(exc):
+                # 服务器错误/认证失败：退回逐帧远程读取只会把请求打得更密，
+                # 结果仍然是 5xx。原样上报，交给连续 5xx 的保护。
                 raise
             index_error = str(exc)
         if index_error is not None:
@@ -1019,7 +1029,7 @@ def scrape_one_sprite(
         except TsWindowUnavailable as exc:
             ts_error = str(exc)
         except VideoError as exc:
-            if runtime.cancel_event.is_set():
+            if runtime.cancel_event.is_set() or is_upstream_block(exc):
                 raise
             ts_error = str(exc)
         if ts_error is not None:
@@ -1051,7 +1061,7 @@ def scrape_one_sprite(
         except AviWindowUnavailable as exc:
             avi_error = str(exc)
         except VideoError as exc:
-            if runtime.cancel_event.is_set():
+            if runtime.cancel_event.is_set() or is_upstream_block(exc):
                 raise
             avi_error = str(exc)
         if avi_error is not None:
@@ -1086,19 +1096,42 @@ def scrape_one_sprite(
 
                 def grab(position: float = position, index: int = index) -> bytes:
                     limiter.wait(folder)
-                    return extract_frame(
-                        ffmpeg,
-                        cache_bust(remote_url),
-                        position,
-                        cell_width,
-                        token,
-                        insecure,
-                        timeout=extract_timeout,
-                        seek_modes=(True,),
-                        label=f"{video.name} 第 {index}/{count} 帧",
-                        stall_timeout=stall_timeout,
-                        task=task,
-                    )
+                    version = frame_proxy.error_version() if frame_proxy is not None else 0
+                    try:
+                        return extract_frame(
+                            ffmpeg,
+                            cache_bust(remote_url),
+                            position,
+                            cell_width,
+                            token,
+                            insecure,
+                            timeout=extract_timeout,
+                            seek_modes=(True,),
+                            label=f"{video.name} 第 {index}/{count} 帧",
+                            stall_timeout=stall_timeout,
+                            task=task,
+                        )
+                    except VideoError as exc:
+                        # 代理已经回了 206、取到中途才断开时，ffmpeg 只看到
+                        # “Input/output error”。真实原因是代理记下的上游失败
+                        # （HTTP 500/403 等），按它分类，别当成未知错误继续重试。
+                        upstream_error = (
+                            frame_proxy.error_since(version)
+                            if frame_proxy is not None
+                            else None
+                        )
+                        if upstream_error is None or not is_upstream_block(upstream_error):
+                            raise
+                        context = dict(exc.context)
+                        context["upstream_error"] = str(upstream_error)
+                        context["upstream_reason"] = upstream_error.reason
+                        raise VideoError(
+                            upstream_error.reason,
+                            f"本地缓存代理读取上游失败：{upstream_error}",
+                            retryable=upstream_error.reason not in ("auth", "notfound"),
+                            phase=exc.phase or "抽帧",
+                            context=context,
+                        ) from exc
 
                 try:
                     frames.append(retry(f"雪碧图 {video.name} 第 {index}/{count} 帧", retries, grab))

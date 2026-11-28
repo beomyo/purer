@@ -220,12 +220,16 @@ class SpriteIndex:
                     return index, data
                 except VideoError as exc:
                     last_error = exc
-                    if runtime.cancel_event.is_set():
+                    if runtime.cancel_event.is_set() or exc.reason in ("auth", "notfound"):
                         raise
                     time.sleep(min(10.0, 2.0 * (attempt + 1)))
+            # 保留最后一次的真实原因：上游被 WAF 拦截（5xx）时不能改写成 timeout，
+            # 否则连续 5xx 的停止保护看不到，整轮会一直失败下去。
+            reason = last_error.reason if last_error is not None else "timeout"
             raise VideoError(
-                "timeout",
+                reason,
                 f"第 {index + 1}/{len(ranges)} 段数据读取失败（{last_error}）",
+                retryable=reason not in ("auth", "notfound"),
                 phase="取数据段",
                 context={"url": url, "start": start, "length": length},
             )

@@ -31,7 +31,7 @@ from .constants import (
     SPRITE_TS_WINDOW_SECONDS,
     SPRITE_TS_WORKERS,
 )
-from .errors import VideoError
+from .errors import VideoError, is_upstream_block
 from .ffmpeg import _run_capture
 from .mp4window import read_range_retry
 from .progress import TaskProgress
@@ -136,12 +136,15 @@ def _fetch_window(
             return data
         except VideoError as exc:
             last_error = exc
-            if runtime.cancel_event.is_set():
+            if runtime.cancel_event.is_set() or exc.reason in ("auth", "notfound"):
                 raise
             time.sleep(min(10.0, 2.0 * (attempt + 1)))
+    # 保留真实原因（5xx/403 不能被改写成 timeout），否则连续服务器错误的保护看不到
+    reason = last_error.reason if last_error is not None else "timeout"
     raise VideoError(
-        "timeout",
+        reason,
         f"读取 TS 数据窗口失败（{last_error}）",
+        retryable=reason not in ("auth", "notfound"),
         phase="取窗口",
         context={"url": url, "start": start, "length": length},
     )
@@ -252,6 +255,9 @@ def extract_ts_frames(
                     os.remove(path)
                 except OSError:
                     pass
+        if isinstance(last_error, VideoError) and is_upstream_block(last_error):
+            # 上游整体不可用：不要包装成 noframe（会重置连续 5xx 计数）
+            raise last_error
         raise VideoError(
             "noframe",
             f"第 {index + 1}/{count} 个 TS 窗口失败（{last_error}）",

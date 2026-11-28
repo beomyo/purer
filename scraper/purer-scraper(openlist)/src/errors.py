@@ -115,5 +115,16 @@ def classify_ffmpeg_failure(stderr: str) -> str:
     return "unknown"
 
 
+# 上游被 WAF/限流拦截或认证、文件不存在：换一条读取路径（索引 → 逐帧远程）也是同样
+# 的结果，只会把更多请求打到已经被拦截的接口上。这类错误必须原样上报，让
+# 「连续 5xx 停止本轮」的保护及时生效。
+UPSTREAM_BLOCK_REASONS = ("server", "auth", "notfound", "ratelimited")
+
+
+def is_upstream_block(exc: BaseException) -> bool:
+    """这个错误是不是「上游整体不可用」，不应该再退回别的读取路径。"""
+    return getattr(exc, "reason", "") in UPSTREAM_BLOCK_REASONS
+
+
 def failure_label(reason: str) -> str:
     return FAILURE_LABELS.get(reason, FAILURE_LABELS["unknown"])

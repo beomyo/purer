@@ -10,6 +10,10 @@ WMV / MKV / 部分 AVI 的远程抽帧里，每个 ffmpeg 进程都会重新读�
 - 上游请求统一走全局 1 路并发 + 退避重试。
 
 代理只服务当前视频，视频结束就关闭，不改变缓存文件格式。
+
+上游失败时不能装作成功：先取到第一块再回响应头，取不到就回 502/403 等真实状态，
+ffmpeg 会按「服务器错误」上报；已经回了一半数据才断开的，把上游错误记下来，由调用方
+（雪碧图取帧）按真实原因分类，避免 115 WAF 拦截被伪装成「未知错误」而一直重试。
 """
 from __future__ import annotations
 
@@ -17,6 +21,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import upstream
+from .errors import VideoError
 from .mp4window import read_range_retry
 from .webdav import WebDav
 
@@ -36,10 +41,30 @@ class _ChunkCache:
         self._fetch_lock = threading.Lock()
         self._chunks: dict[int, bytes] = {}
         self._order: list[int] = []
+        # 最近一次上游读取失败（供调用方判断 ffmpeg 为什么被中断）
+        self._error: VideoError | None = None
+        self._error_seq = 0
         last = (size - 1) // _CHUNK
         self._pinned = set(range(min(_PIN_HEAD_CHUNKS, last + 1))) | set(
             range(max(0, last - _PIN_TAIL_CHUNKS + 1), last + 1)
         )
+
+    def record_error(self, exc: BaseException) -> None:
+        with self._lock:
+            self._error_seq += 1
+            if isinstance(exc, VideoError):
+                self._error = exc
+            else:
+                self._error = VideoError("unknown", f"本地缓存代理读取上游失败：{exc}")
+
+    def error_version(self) -> int:
+        with self._lock:
+            return self._error_seq
+
+    def error_since(self, version: int) -> VideoError | None:
+        """version 之后有没有新的上游失败；没有就返回 None。"""
+        with self._lock:
+            return self._error if self._error_seq > version else None
 
     def _touch(self, index: int) -> None:
         try:
@@ -79,13 +104,21 @@ class _ChunkCache:
             start = index * _CHUNK
             end = min(self.size, start + _FETCH_SPAN * _CHUNK)
             length = end - start
-            with upstream.UPSTREAM_LIMIT:
-                block = read_range_retry(
-                    self.client, self.url, start, length,
-                    timeout=30, budget=90, attempts=3,
-                )
-            if len(block) != length:
-                raise OSError(f"上游返回 {len(block)}/{length} 字节")
+            try:
+                with upstream.UPSTREAM_LIMIT:
+                    block = read_range_retry(
+                        self.client, self.url, start, length,
+                        timeout=30, budget=90, attempts=3,
+                    )
+                if len(block) != length:
+                    raise VideoError(
+                        "timeout",
+                        f"上游只返回 {len(block)}/{length} 字节",
+                        phase="本地缓存代理",
+                    )
+            except Exception as exc:  # noqa: BLE001 - 记录后原样抛出
+                self.record_error(exc)
+                raise
             with self._lock:
                 for step in range(_FETCH_SPAN):
                     offset = step * _CHUNK
@@ -134,9 +167,39 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/octet-stream")
         self.end_headers()
 
+    def _send_upstream_error(self, exc: BaseException) -> None:
+        """上游读不到数据时返回真实状态码，别让 ffmpeg 只看到空响应。
+
+        以前一律先回 206 再取数据，上游被 115 WAF 拦截时 ffmpeg 只看到
+        「Stream ends prematurely at 0」，被归成「未知错误」，既不计数也不会触发
+        「连续 5xx 停止本轮」。这里按上游原因返回 5xx/403/404/429，让分类正确。
+        """
+        status = {"auth": 403, "notfound": 404, "ratelimited": 429}.get(
+            str(getattr(exc, "reason", "")), 502
+        )
+        body = f"upstream read failed: {exc}".encode("utf-8", "replace")[:512]
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception:  # noqa: BLE001 - 客户端可能已经断开
+            pass
+        self.close_connection = True
+
     def do_GET(self) -> None:
         start, end = self._parse_range()
         remaining = end - start + 1
+        first_index = start // _CHUNK
+        try:
+            # 先确认第一块真能读到，再声明 206；上游失败时 ffmpeg 拿到的是
+            # 5xx/403 而不是「Content-Length 有值、字节数为 0」。
+            first = self.cache.get_or_fetch(first_index)
+        except Exception as exc:  # noqa: BLE001 - 上游失败按真实状态返回
+            self._send_upstream_error(exc)
+            return
         self.send_response(206)
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Range", f"bytes {start}-{end}/{self.cache.size}")
@@ -150,7 +213,7 @@ class _Handler(BaseHTTPRequestHandler):
             while remaining > 0:
                 index = position // _CHUNK
                 offset = position % _CHUNK
-                data = self.cache.get_or_fetch(index)
+                data = first if index == first_index else self.cache.get_or_fetch(index)
                 piece = data[offset:offset + remaining]
                 if not piece:
                     break
@@ -159,7 +222,8 @@ class _Handler(BaseHTTPRequestHandler):
                 remaining -= len(piece)
         except (BrokenPipeError, ConnectionResetError):
             pass
-        except Exception:  # noqa: BLE001 - 代理失败就让 ffmpeg 自己报错
+        except Exception:  # noqa: BLE001 - 已经回了响应头，只能断开；
+            # 上游失败原因在 get_or_fetch 里已经记录，这里不再覆盖成客户端错误
             pass
 
 
@@ -177,6 +241,14 @@ class CacheProxy:
     def start(self) -> "CacheProxy":
         self._thread.start()
         return self
+
+    # 取帧失败时用来判断「是不是上游整体不可用」：ffmpeg 只看到连接被断开，
+    # 真实原因（HTTP 500/403 等）由这里带出去。
+    def error_version(self) -> int:
+        return self.cache.error_version()
+
+    def error_since(self, version: int) -> VideoError | None:
+        return self.cache.error_since(version)
 
     def close(self) -> None:
         try:
