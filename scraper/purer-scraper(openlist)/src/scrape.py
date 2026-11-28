@@ -727,6 +727,15 @@ def sprite_last_cell(ffmpeg: str, sprite: bytes, cols: int, rows: int) -> bytes:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def sprite_thumbnail_name(sprite: Resource) -> str | None:
+    """雪碧图对应的普通缩略图文件名：去掉 `~列x行` 后缀，其余（时长前缀）不变。"""
+    name = sprite.name
+    base, grid = split_sprite_suffix(name[:-4] if name.lower().endswith(".jpg") else name)
+    if grid is None:
+        return None
+    return base + ".jpg"
+
+
 def backfill_thumbnail_from_sprite(
     ffmpeg: str,
     cache_client: WebDav,
@@ -743,10 +752,12 @@ def backfill_thumbnail_from_sprite(
     补出来的缩略图与普通模式生成的缩略图同名，App 能直接识别。不需要重新读视频。
     """
     name = sprite.name
-    base, grid = split_sprite_suffix(name[:-4] if name.lower().endswith(".jpg") else name)
+    _, grid = split_sprite_suffix(name[:-4] if name.lower().endswith(".jpg") else name)
     if grid is None:
         return False
-    thumb_name = base + ".jpg"
+    thumb_name = sprite_thumbnail_name(sprite)
+    if thumb_name is None:
+        return False
     folder_url = sprite.url.rsplit("/", 1)[0]
     thumb_url = folder_url + "/" + quote_name(thumb_name)
 
@@ -1382,41 +1393,44 @@ def scrape(
             skipped_short_scan = 0
             failed_here = 0
             existing_label = "雪碧图" if mode == "sprite" else "缩略图"
+            # 按文件名精确判断缩略图是否已在目标路径上（listings.frames 会同时接受
+            # 带/不带时长前缀两种写法，不能用来判断某个具体路径有没有文件）
+            cache_file_names = {entry.name for entry in listing.thumbnails}
             for video in videos:
                 if mode == "sprite":
                     # 雪碧图与缩略图的失败记录互不影响：只看雪碧图文件是否存在，
                     # 按格子判断，改了 --sprite-grid 会重新生成。
                     if sprite_grid in listing.sprites.get(video.name, ()):
                         skipped_here += 1
-                        if video.name not in listing.frames:
+                        sprite_resource = next(
+                            (
+                                resource
+                                for grid, resource in listing.sprite_files.get(video.name, ())
+                                if grid == sprite_grid
+                            ),
+                            None,
+                        )
+                        thumb_name = (
+                            sprite_thumbnail_name(sprite_resource)
+                            if sprite_resource is not None
+                            else None
+                        )
+                        if thumb_name is not None and thumb_name not in cache_file_names:
                             # 旧版雪碧图模式只写了雪碧图：下载后裁最后一格补缩略图
                             if dry_run:
-                                log(f"  待补缩略图（取雪碧图最后一帧）：{video.name}")
-                            else:
-                                sprite_resource = next(
-                                    (
-                                        resource
-                                        for grid, resource in listing.sprite_files.get(
-                                            video.name, ()
-                                        )
-                                        if grid == sprite_grid
-                                    ),
-                                    None,
-                                )
-                                if (
-                                    sprite_resource is not None
-                                    and backfill_thumbnail_from_sprite(
-                                        ffmpeg,
-                                        cache_client,
-                                        sprite_resource,
-                                        cache_root,
-                                        retries,
-                                        limiter,
-                                        folder,
-                                        video.name,
-                                    )
-                                ):
-                                    stats.bump(generated=1)
+                                log(f"  待补缩略图（取雪碧图最后一帧）：{thumb_name}")
+                            elif backfill_thumbnail_from_sprite(
+                                ffmpeg,
+                                cache_client,
+                                sprite_resource,
+                                cache_root,
+                                retries,
+                                limiter,
+                                folder,
+                                video.name,
+                            ):
+                                stats.bump(generated=1)
+                                cache_file_names.add(thumb_name)
                         stale = stale_sprite_files(listing, video.name, sprite_grid)
                         if stale:
                             if dry_run:
