@@ -772,7 +772,7 @@ def backfill_thumbnail_from_sprite(
         sheet = retry(f"下载雪碧图 {label}", retries, download)
         data = sprite_last_cell(ffmpeg, sheet, grid[0], grid[1])
         retry(f"上传缩略图 {label}", retries, lambda: upload(data))
-    except (VideoError, WebDavError) as exc:
+    except Exception as exc:  # noqa: BLE001 - 补缩略图是顺手的事，失败不能中断扫描
         log(f"  {label}：从雪碧图补缩略图失败（{exc}），下次运行再试")
         return False
     log(f"  {label}：已从雪碧图补上缩略图（取最后一帧，{len(data) // 1024}KB）")
@@ -1168,7 +1168,7 @@ def scrape_one_sprite(
             f"  {video.name}：缩略图完成（取雪碧图最后一帧，"
             f"{len(thumb_frame) // 1024}KB）"
         )
-    except (VideoError, WebDavError) as exc:
+    except Exception as exc:  # noqa: BLE001 - 雪碧图已经上传成功，缩略图失败下次再补
         log(f"  {video.name}：缩略图生成失败（{exc}），下次运行会从雪碧图补上")
     return filename, duration
 
@@ -1415,7 +1415,11 @@ def scrape(
                             if sprite_resource is not None
                             else None
                         )
-                        if thumb_name is not None and thumb_name not in cache_file_names:
+                        if (
+                            thumb_name is not None
+                            and thumb_name not in cache_file_names
+                            and not runtime.cancel_event.is_set()
+                        ):
                             # 旧版雪碧图模式只写了雪碧图：下载后裁最后一格补缩略图
                             if dry_run:
                                 log(f"  待补缩略图（取雪碧图最后一帧）：{thumb_name}")
