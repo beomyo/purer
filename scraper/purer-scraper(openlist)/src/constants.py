@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = "1.17.7"
+VERSION = "1.17.6"
 USER_AGENT = f"PurerDesktopScraper/{VERSION}"
 
 # ---- 失败标记（与 App 的 CloudMediaCache / CloudThumbnailScraper 一致） ----
@@ -79,10 +79,6 @@ DEFAULT_SPRITE_WIDTH = 320      # 单格最大边长（雪碧图总大小控制�
 # 雪碧图每个视频要取 N 帧，短片生成的动画效果差且代价高，所以默认跳过短片。
 # 设为 0 表示不限制。
 DEFAULT_SPRITE_MIN_DURATION = 300.0
-# 雪碧图每个视频的最短处理时间（秒）：快速路径 40–100 秒就能取完一个视频，连续
-# 切换文件过快会触发 115 的风控。这里把每帧的上游读取均匀铺开，让每个视频至少
-# 用这么久；处理结束时不足再补足。0 表示关闭节奏控制（恢复快速路径的最快速度）。
-DEFAULT_SPRITE_MIN_SECONDS = 90.0
 MIN_SPRITE_CELL = 64
 MAX_SPRITE_CELL = 640
 MAX_SPRITE_FRAMES = 25          # 列*行 的上限，避免一次取太多帧

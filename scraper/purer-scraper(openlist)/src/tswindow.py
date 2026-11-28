@@ -34,7 +34,6 @@ from .constants import (
 from .errors import VideoError, is_upstream_block
 from .ffmpeg import _run_capture
 from .mp4window import read_range_retry
-from .pacing import SpritePacer
 from .progress import TaskProgress
 from .rate import RateLimiter
 from .urls import sprite_positions
@@ -212,12 +211,8 @@ def extract_ts_frames(
     extract_timeout: float = EXTRACT_TIMEOUT,
     serial: bool = False,
     task: TaskProgress | None = None,
-    pacer: SpritePacer | None = None,
 ) -> list[bytes]:
-    """按字节窗口取 count 帧；serial=True 时窗口/解码只用 1 个工作线程。
-
-    pacer 用来把各窗口的读取均匀铺开（见 pacing.py）。
-    """
+    """按字节窗口取 count 帧；serial=True 时窗口/解码只用 1 个工作线程。"""
     if duration <= 0:
         raise TsWindowUnavailable("时长为零")
     byte_rate = file_size / duration
@@ -237,8 +232,6 @@ def extract_ts_frames(
     def work(index: int) -> tuple[int, bytes]:
         if runtime.cancel_event.is_set():
             raise VideoError("timeout", "已取消", phase="取窗口")
-        if pacer is not None:
-            pacer.wait_for(index)
         attempts: list[int] = [window]
         if window * 2 <= SPRITE_TS_WINDOW_MAX * 2:
             attempts.append(min(window * 2, file_size))

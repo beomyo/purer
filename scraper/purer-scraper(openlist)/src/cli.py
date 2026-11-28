@@ -33,7 +33,6 @@ from .constants import (
     DEFAULT_RETRIES,
     DEFAULT_SPRITE_GRID,
     DEFAULT_SPRITE_MIN_DURATION,
-    DEFAULT_SPRITE_MIN_SECONDS,
     DEFAULT_SPRITE_WIDTH,
     DEFAULT_UNSUPPORTED_CODECS,
     EXTRACT_TIMEOUT,
@@ -124,13 +123,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "雪碧图只处理时长超过该秒数的视频，默认 "
             f"{DEFAULT_SPRITE_MIN_DURATION:g}（缩略图模式不限制）；0 表示不限制"
-        ),
-    )
-    parser.add_argument(
-        "--sprite-min-seconds", type=float, default=None,
-        help=(
-            "雪碧图每个视频的最短处理时间（秒），默认 "
-            f"{DEFAULT_SPRITE_MIN_SECONDS:g}；帧读取会按时间均匀铺开，0 表示关闭节奏控制"
         ),
     )
     parser.add_argument(
@@ -241,13 +233,6 @@ def main(argv: list[str] | None = None) -> int:
             config, "sprite_min_duration", DEFAULT_SPRITE_MIN_DURATION, float
         )
     )
-    sprite_min_seconds = (
-        args.sprite_min_seconds
-        if args.sprite_min_seconds is not None
-        else config_number(
-            config, "sprite_min_seconds", DEFAULT_SPRITE_MIN_SECONDS, float
-        )
-    )
     try:
         sprite_grid = parse_sprite_grid(
             args.sprite_grid or config_text(config, "sprite_grid") or DEFAULT_SPRITE_GRID
@@ -297,10 +282,6 @@ def main(argv: list[str] | None = None) -> int:
     if sprite_min_duration < 0:
         print("--sprite-min-duration 不能为负数（0 表示不限制）。")
         runtime.run_summary = "参数无效：sprite-min-duration"
-        return 2
-    if sprite_min_seconds < 0:
-        print("--sprite-min-seconds 不能为负数（0 表示关闭节奏控制）。")
-        runtime.run_summary = "参数无效：sprite-min-seconds"
         return 2
     if args.limit is not None and args.limit < 1:
         print("--limit 必须是正整数。")
@@ -436,7 +417,6 @@ def main(argv: list[str] | None = None) -> int:
         config["sprite_grid"] = f"{sprite_grid[0]}x{sprite_grid[1]}"
         config["sprite_width"] = sprite_width
         config["sprite_min_duration"] = sprite_min_duration
-        config["sprite_min_seconds"] = sprite_min_seconds
         config["sprite_index"] = sprite_index
         config["sprite_window"] = sprite_window
         config["unsupported_codecs"] = sorted(unsupported_codecs)
@@ -471,7 +451,6 @@ def main(argv: list[str] | None = None) -> int:
             sprite_grid=sprite_grid,
             sprite_width=sprite_width,
             sprite_min_duration=sprite_min_duration,
-            sprite_min_seconds=sprite_min_seconds,
             sprite_index=sprite_index,
             sprite_window=sprite_window,
             unsupported_codecs=unsupported_codecs,
@@ -521,7 +500,7 @@ def main(argv: list[str] | None = None) -> int:
         print_run_summary(
             server, cache_server, cache_folder, source_folder,
             percent, rate, width, jobs, mode, sprite_grid, sprite_width,
-            sprite_min_duration, sprite_min_seconds,
+            sprite_min_duration,
         )
         try:
             choice = input("按 Enter 开始刮削，输入 m 重新选择文件夹：").strip().lower()
@@ -544,13 +523,13 @@ def main(argv: list[str] | None = None) -> int:
             print_run_summary(
                 server, cache_server, cache_folder, source_folder,
                 percent, rate, width, jobs, mode, sprite_grid, sprite_width,
-                sprite_min_duration, sprite_min_seconds,
+                sprite_min_duration,
             )
     else:
         print_run_summary(
             server, cache_server, cache_folder, source_folder,
             percent, rate, width, jobs, mode, sprite_grid, sprite_width,
-            sprite_min_duration, sprite_min_seconds,
+            sprite_min_duration,
         )
 
     # 缓存根目录可能还没创建：逐级建好（WebDAV 的 MKCOL 不会自动建父目录）
@@ -580,7 +559,6 @@ def main(argv: list[str] | None = None) -> int:
             "sprite_grid": f"{sprite_grid[0]}x{sprite_grid[1]}",
             "sprite_width": sprite_width,
             "sprite_min_duration": sprite_min_duration,
-            "sprite_min_seconds": sprite_min_seconds,
             "sprite_index": sprite_index,
             "sprite_window": sprite_window,
             "unsupported_codecs": sorted(unsupported_codecs),
@@ -620,7 +598,6 @@ def main(argv: list[str] | None = None) -> int:
             sprite_grid=sprite_grid,
             sprite_width=sprite_width,
             sprite_min_duration=sprite_min_duration,
-            sprite_min_seconds=sprite_min_seconds,
             sprite_index=sprite_index,
             sprite_window=sprite_window,
             unsupported_codecs=unsupported_codecs,
@@ -724,7 +701,6 @@ def main(argv: list[str] | None = None) -> int:
                     sprite_grid=sprite_grid,
                     sprite_width=sprite_width,
                     sprite_min_duration=sprite_min_duration,
-                    sprite_min_seconds=sprite_min_seconds,
                     sprite_index=sprite_index,
                     sprite_window=sprite_window,
                     unsupported_codecs=unsupported_codecs,

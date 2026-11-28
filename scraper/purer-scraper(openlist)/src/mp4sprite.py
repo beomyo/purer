@@ -50,7 +50,6 @@ from .mp4window import (
     _mp4_video_track,
     _read_range,
 )
-from .pacing import SpritePacer
 from .progress import TaskProgress
 from .rate import RateLimiter
 from .urls import sprite_positions
@@ -151,12 +150,10 @@ class SpriteIndex:
         extract_timeout: float = EXTRACT_TIMEOUT,
         serial: bool = False,
         task: TaskProgress | None = None,
-        pacer: SpritePacer | None = None,
     ) -> list[bytes]:
         """按索引取回 count 帧（按时间顺序），失败抛 VideoError / SpriteIndexUnavailable。
 
         serial=True 时本地解码只用 1 个工作线程（大文件避免 CPU 打满）。
-        pacer 用来把各数据段的读取均匀铺开（见 pacing.py）。
         """
         positions = sprite_positions(self.duration, count)
         ranges = self.byte_ranges(positions)
@@ -173,7 +170,7 @@ class SpriteIndex:
 
         if task is not None:
             task.set_phase("取数据段", steps=len(ranges))
-        chunks = self._fetch_ranges(client, url, ranges, folder, limiter, task, pacer)
+        chunks = self._fetch_ranges(client, url, ranges, folder, limiter, task)
 
         tmpdir = tempfile.mkdtemp(prefix="purer-sprite-index-")
         try:
@@ -194,16 +191,12 @@ class SpriteIndex:
         folder: str,
         limiter: RateLimiter,
         task: TaskProgress | None,
-        pacer: SpritePacer | None = None,
     ) -> list[bytes]:
         """并发读取各数据段；同一文件的并发保持较低，避免服务器 403。"""
 
         def fetch(index: int) -> tuple[int, bytes]:
             start, length = ranges[index]
             last_error: VideoError | None = None
-            # 节奏控制放在重试循环外：每帧只占一个时间槽，重试不再额外等一轮
-            if pacer is not None:
-                pacer.wait_for(index)
             for attempt in range(SPRITE_INDEX_ATTEMPTS):
                 if runtime.cancel_event.is_set():
                     raise VideoError("timeout", "已取消", phase="取数据段")
